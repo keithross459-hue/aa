@@ -96,3 +96,38 @@ A creator-economy SaaS that turns a niche idea into a live, sellable digital pro
 1. Wire real Stan Store / Whop publishing (P0).
 2. Add cover image generation via Gemini Nano Banana (P1).
 3. Real Meta Ads campaign launch from generated creatives (P1).
+
+---
+
+## Iteration 5 — Bring-Your-Own-Credentials + Downloads (Apr 30, 2026)
+
+### New features
+- **Per-user Integrations Hub** — `/app/settings` page lets each user save their own API credentials for 13 providers (Gumroad, Stan Store, Whop, Payhip, Shopify, Stripe, Meta, TikTok, Instagram, Twitter, YouTube, OpenAI, Anthropic). All secret fields encrypted at rest with Fernet (`SETTINGS_ENC_KEY` in backend .env, derived via SHA-256). Non-secret IDs (pixel_id, ad_account_id, etc.) stored plain.
+- **Product downloads** — every generated product can be exported as:
+  - **PDF** (`GET /api/products/{id}/download/pdf`) — typeset cover + overview + bullet features + outline + sales copy + cover concept using reportlab.
+  - **Bundle ZIP** (`GET /api/products/{id}/download/bundle`) — product.pdf, product.md, ad_campaigns.md, tiktok_posts.md, sales_copy.txt.
+  - **Whole library** (`GET /api/products/download/all`) — every product in a single `filthy-library.zip` with subfolders.
+- **Real store integrations expanded** — `/api/launch` now uses per-user creds for Gumroad, Stan Store, Whop, Payhip. Unconfigured real-capable stores return status=`NOT_CONFIGURED` with an instructive error (no more silent placeholder URLs). Stripe checkout also uses per-user `secret_key` when present.
+- **Credential test endpoint** — `POST /api/settings/test/{provider}` does a live HTTP verification call for Gumroad, Meta, Stripe; for others returns `{ok:true, note:"..."}`.
+- **Stats API extended** — `/api/stats` now returns `integrations_configured` / `integrations_total` counts to power the "connect your stores" dashboard CTA.
+
+### Backend files added
+- `/app/backend/integrations/settings.py` — encryption helpers, provider schema, prepare/decrypt/redact.
+- `/app/backend/integrations/downloads.py` — PDF + ZIP builders.
+- `/app/backend/integrations/stores.py` — Stan Store, Whop, Payhip REST integrations.
+
+### Frontend files added
+- `/app/frontend/src/pages/Settings.jsx` — full Integrations Hub UI (save / test / clear per provider).
+- AppLayout sidebar + Dashboard CTA updated.
+- ProductDetail header now has **Download PDF** + **Full Bundle (.zip)** buttons.
+- Products list now has a **Download all (.zip)** button.
+
+### Testing
+- Backend regression (testing subagent, iteration_1.json): **24/24 green** — covering auth, settings CRUD, encryption/redaction, downloads (valid PDF + ZIP magic bytes + 5-file bundle), campaign + launch + NOT_CONFIGURED fallback, stats integration counts.
+
+## Backlog (updated)
+- **P0** Real Meta ads publish path still requires user's Meta App to be approved for ads_management — unchanged.
+- **P1** Stan / Whop / Payhip publish paths only validated structurally; needs a live token to confirm end-to-end.
+- **P1** Add Stripe webhook secret per-user (current webhook handler still falls back to env; non-critical — polling `/api/billing/status` is authoritative).
+- **P2** Split `server.py` (now ~1500 lines) into routers.
+- **P2** `/api/products/download/all` rebuilds PDFs synchronously — move to streaming for large libraries.
