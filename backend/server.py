@@ -1,12 +1,12 @@
 """
 FiiLTHY.AI — Viral Marketing SaaS Backend
-- JWT Auth
+- JWT Auth (with admin seed, referral attribution, welcome email)
 - AI generates Digital Products
 - Per-product Ad Campaigns
 - Multi-store launch (user-configured credentials)
 - Per-user integration credentials (encrypted)
-- Product PDF / ZIP downloads
-- Plan/usage tracking
+- Product PDF / ZIP downloads (with viral "Powered by FiiLTHY" back-cover)
+- Plan/usage tracking + Stripe subscriptions + Admin panel + Referrals + Email
 """
 import io
 import logging
@@ -17,21 +17,18 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-import bcrypt
-import jwt as pyjwt
 from dotenv import load_dotenv
 from emergentintegrations.llm.chat import LlmChat, UserMessage
-from emergentintegrations.payments.stripe.checkout import (
-    CheckoutSessionRequest,
-    StripeCheckout,
-)
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from starlette.middleware.cors import CORSMiddleware
 
+from core_auth import (
+    bearer, current_admin, current_user, hash_pw, is_owner_email, make_token, verify_pw,
+)
+from db import close_client, db
 from integrations import meta_ads, settings as user_settings
 from integrations.downloads import (
     build_library_zip,
@@ -46,29 +43,29 @@ from integrations.stores import (
     whop_create_product,
 )
 from integrations.tiktok_ai import generate_tiktok_posts
+from routers.admin import public_router as announcement_public_router
+from routers.admin import router as admin_router
+from routers.billing import router as billing_router
+from routers.billing import webhook_router as webhook_router
+from routers.referrals import router as referrals_router
+from services import email as email_service
+from services import referrals as referral_service
+from services import stripe_service
 
 # ---------- Setup ----------
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-MONGO_URL = os.environ["MONGO_URL"]
-DB_NAME = os.environ["DB_NAME"]
-JWT_SECRET = os.environ["JWT_SECRET"]
 EMERGENT_LLM_KEY = os.environ["EMERGENT_LLM_KEY"]
-
-client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
 
 app = FastAPI(title="FiiLTHY.AI API")
 api = APIRouter(prefix="/api")
-bearer = HTTPBearer(auto_error=False)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 log = logging.getLogger("filthy")
 
 # ---------- Constants ----------
 PLAN_LIMITS = {"free": 5, "starter": 50, "pro": 500, "enterprise": 999999}
-PLAN_PRICES_USD = {"starter": 29.00, "pro": 79.00, "enterprise": 299.00}
 STORES = [
     {"id": "gumroad", "name": "Gumroad", "real": True},
     {"id": "stan_store", "name": "Stan Store", "real": True},
@@ -101,6 +98,10 @@ class UserOut(BaseModel):
     plan: str
     generations_used: int
     plan_limit: int
+    role: str = "user"
+    subscription_status: Optional[str] = None
+    stripe_customer_id: Optional[str] = None
+    banned: bool = False
 
 
 class AuthResp(BaseModel):
@@ -178,11 +179,6 @@ class StoreListing(BaseModel):
     error: Optional[str] = None
 
 
-class CheckoutReq(BaseModel):
-    plan: Literal["starter", "pro", "enterprise"]
-    origin_url: str
-
-
 class ClickEventReq(BaseModel):
     product_id: str
     source: Literal["tiktok", "meta"]
@@ -211,39 +207,11 @@ class UpdateSettingsReq(BaseModel):
     providers: Dict[str, Dict[str, Optional[str]]]
 
 
-# ---------- Auth helpers ----------
-def _hash_pw(pw: str) -> str:
-    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
-
-
-def _verify_pw(pw: str, hashed: str) -> bool:
-    try:
-        return bcrypt.checkpw(pw.encode(), hashed.encode())
-    except Exception:
-        return False
-
-
-def _make_token(user_id: str) -> str:
-    payload = {
-        "sub": user_id,
-        "iat": datetime.now(timezone.utc),
-        "exp": datetime.now(timezone.utc) + timedelta(days=30),
-    }
-    return pyjwt.encode(payload, JWT_SECRET, algorithm="HS256")
-
-
-async def current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer)):
-    if not creds:
-        raise HTTPException(401, "Not authenticated")
-    try:
-        payload = pyjwt.decode(creds.credentials, JWT_SECRET, algorithms=["HS256"])
-        uid = payload["sub"]
-    except Exception:
-        raise HTTPException(401, "Invalid token")
-    user = await db.users.find_one({"id": uid}, {"_id": 0, "password": 0})
-    if not user:
-        raise HTTPException(401, "User not found")
-    return user
+class SignupReqV2(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6)
+    name: str = Field(min_length=1)
+    referral_code: Optional[str] = None
 
 
 def _user_out(u: dict) -> UserOut:
@@ -254,6 +222,10 @@ def _user_out(u: dict) -> UserOut:
         plan=u.get("plan", "free"),
         generations_used=u.get("generations_used", 0),
         plan_limit=PLAN_LIMITS.get(u.get("plan", "free"), 5),
+        role=u.get("role", "user"),
+        subscription_status=u.get("subscription_status"),
+        stripe_customer_id=u.get("stripe_customer_id"),
+        banned=bool(u.get("banned", False)),
     )
 
 
@@ -311,30 +283,53 @@ async def root():
 
 
 @api.post("/auth/signup", response_model=AuthResp)
-async def signup(req: SignupReq):
+async def signup(req: SignupReqV2):
     existing = await db.users.find_one({"email": req.email.lower()})
     if existing:
         raise HTTPException(400, "Email already registered")
     uid = str(uuid.uuid4())
+    role = "admin" if is_owner_email(req.email) else "user"
     user_doc = {
         "id": uid,
         "email": req.email.lower(),
         "name": req.name,
-        "password": _hash_pw(req.password),
+        "password": hash_pw(req.password),
         "plan": "free",
+        "role": role,
         "generations_used": 0,
+        "banned": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(user_doc)
-    return AuthResp(token=_make_token(uid), user=_user_out(user_doc))
+
+    # Record referral attribution if code provided
+    try:
+        if req.referral_code:
+            await referral_service.record_signup_attribution(uid, req.referral_code)
+    except Exception as ex:
+        log.warning(f"referral attribution failed: {ex}")
+    # Ensure this user has their own code
+    try:
+        await referral_service.ensure_user_referral(user_doc)
+    except Exception as ex:
+        log.warning(f"ensure_user_referral failed: {ex}")
+    # Welcome email (non-blocking best-effort)
+    try:
+        await email_service.send_email(req.email, "welcome", {"name": req.name})
+    except Exception as ex:
+        log.warning(f"welcome email failed: {ex}")
+
+    return AuthResp(token=make_token(uid), user=_user_out(user_doc))
 
 
 @api.post("/auth/login", response_model=AuthResp)
 async def login(req: LoginReq):
     user = await db.users.find_one({"email": req.email.lower()})
-    if not user or not _verify_pw(req.password, user["password"]):
+    if not user or not verify_pw(req.password, user["password"]):
         raise HTTPException(401, "Invalid credentials")
-    return AuthResp(token=_make_token(user["id"]), user=_user_out(user))
+    if user.get("banned"):
+        raise HTTPException(403, "Account suspended")
+    return AuthResp(token=make_token(user["id"]), user=_user_out(user))
 
 
 @api.get("/auth/me", response_model=UserOut)
@@ -549,7 +544,10 @@ async def download_product_pdf(pid: str, user=Depends(current_user)):
     bundle = await _fetch_bundle(pid, user["id"])
     if not bundle:
         raise HTTPException(404, "Product not found")
-    pdf_bytes = build_product_pdf(bundle["product"])
+    code = await referral_service.ensure_user_referral(user)
+    backend = os.environ.get("BACKEND_URL", "").rstrip("/")
+    referral_url = f"{backend}/signup?ref={code}" if backend else None
+    pdf_bytes = build_product_pdf(bundle["product"], referral_url=referral_url)
     fname = f"{_safe_filename(bundle['product'].get('title', 'product'))}.pdf"
     return Response(
         content=pdf_bytes,
@@ -563,8 +561,12 @@ async def download_product_bundle(pid: str, user=Depends(current_user)):
     bundle = await _fetch_bundle(pid, user["id"])
     if not bundle:
         raise HTTPException(404, "Product not found")
+    code = await referral_service.ensure_user_referral(user)
+    backend = os.environ.get("BACKEND_URL", "").rstrip("/")
+    referral_url = f"{backend}/signup?ref={code}" if backend else None
     zip_bytes = build_product_bundle_zip(
         bundle["product"], bundle["campaigns"], bundle["tiktok_posts"],
+        referral_url=referral_url,
     )
     fname = f"{_safe_filename(bundle['product'].get('title', 'product'))}-bundle.zip"
     return Response(
@@ -584,7 +586,10 @@ async def download_all_products(user=Depends(current_user)):
         camps = await db.campaigns.find({"product_id": p["id"], "user_id": user["id"]}, {"_id": 0}).to_list(100)
         tt = await db.tiktok_posts.find({"product_id": p["id"], "user_id": user["id"]}, {"_id": 0, "user_id": 0}).to_list(100)
         items.append({"product": p, "campaigns": camps, "tiktok_posts": tt})
-    zip_bytes = build_library_zip(items)
+    code = await referral_service.ensure_user_referral(user)
+    backend = os.environ.get("BACKEND_URL", "").rstrip("/")
+    referral_url = f"{backend}/signup?ref={code}" if backend else None
+    zip_bytes = build_library_zip(items, referral_url=referral_url)
     return Response(
         content=zip_bytes,
         media_type="application/zip",
@@ -808,6 +813,17 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
             {"id": product["id"]},
             {"$addToSet": {"launched_stores": {"$each": live_ids}}},
         )
+    # Launch success email (best-effort, only if at least one LIVE listing)
+    try:
+        real_count = sum(1 for lst in listings if lst.status == "LIVE")
+        if real_count > 0:
+            await email_service.send_email(
+                user["email"], "launch_success",
+                {"title": product["title"], "product_id": product["id"],
+                 "store_count": len(listings), "real_count": real_count},
+            )
+    except Exception:
+        pass
 
     # ===== META ADS AUTO-LAUNCH (PAUSED) — uses per-user creds =====
     meta_c = creds("meta")
@@ -1359,153 +1375,16 @@ async def analytics(product_id: str, user=Depends(current_user)):
     }
 
 
-# ---------- Billing (Stripe Checkout) ----------
-def _stripe_api_key_for(user_creds: Dict[str, str]) -> Optional[str]:
-    """Prefer per-user stripe key; fall back to env."""
-    return (user_creds.get("secret_key") or os.environ.get("STRIPE_API_KEY") or "").strip() or None
-
-
-@api.post("/billing/create-checkout")
-async def create_checkout(req: CheckoutReq, user=Depends(current_user)):
-    amount = PLAN_PRICES_USD.get(req.plan)
-    if amount is None:
-        raise HTTPException(400, "Invalid plan")
-    user_stripe = await user_settings.get_provider_plain(db, user["id"], "stripe")
-    api_key = _stripe_api_key_for(user_stripe)
-    if not api_key:
-        raise HTTPException(500, "Stripe not configured")
-
-    origin = req.origin_url.rstrip("/")
-    success_url = f"{origin}/billing/success?session_id={{CHECKOUT_SESSION_ID}}"
-    cancel_url = f"{origin}/pricing"
-
-    backend_base = os.environ.get("BACKEND_URL", origin).rstrip("/")
-    stripe = StripeCheckout(api_key=api_key, webhook_url=f"{backend_base}/api/webhook/stripe")
-    session = await stripe.create_checkout_session(
-        CheckoutSessionRequest(
-            amount=float(amount),
-            currency="usd",
-            success_url=success_url,
-            cancel_url=cancel_url,
-            metadata={
-                "user_id": user["id"],
-                "plan": req.plan,
-                "email": user["email"],
-            },
-        )
-    )
-
-    await db.payment_transactions.insert_one({
-        "id": str(uuid.uuid4()),
-        "session_id": session.session_id,
-        "user_id": user["id"],
-        "email": user["email"],
-        "plan": req.plan,
-        "amount": float(amount),
-        "currency": "usd",
-        "payment_status": "pending",
-        "status": "initiated",
-        "metadata": {"user_id": user["id"], "plan": req.plan, "email": user["email"]},
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-    return {"url": session.url, "session_id": session.session_id}
-
-
-@api.get("/billing/status/{session_id}")
-async def checkout_status(session_id: str, user=Depends(current_user)):
-    tx = await db.payment_transactions.find_one(
-        {"session_id": session_id, "user_id": user["id"]}, {"_id": 0}
-    )
-    if not tx:
-        raise HTTPException(404, "Transaction not found")
-
-    user_stripe = await user_settings.get_provider_plain(db, user["id"], "stripe")
-    api_key = _stripe_api_key_for(user_stripe)
-    if not api_key:
-        return {
-            "status": tx.get("status", "pending"),
-            "payment_status": tx.get("payment_status", "pending"),
-            "amount_total": int(float(tx.get("amount", 0)) * 100),
-            "currency": tx.get("currency", "usd"),
-            "plan": tx.get("plan"),
-        }
-    stripe = StripeCheckout(api_key=api_key, webhook_url="https://placeholder/api/webhook/stripe")
-    try:
-        st = await stripe.get_checkout_status(session_id)
-        st_status = st.status
-        st_payment_status = st.payment_status
-        st_amount_total = st.amount_total
-        st_currency = st.currency
-    except Exception as ex:
-        log.warning(f"Stripe status fetch failed for {session_id}: {ex}")
-        return {
-            "status": tx.get("status", "pending"),
-            "payment_status": tx.get("payment_status", "pending"),
-            "amount_total": int(float(tx.get("amount", 0)) * 100),
-            "currency": tx.get("currency", "usd"),
-            "plan": tx.get("plan"),
-            "note": "provider_lookup_failed",
-        }
-
-    if st_payment_status == "paid" and tx.get("payment_status") != "paid":
-        plan = tx.get("plan", "starter")
-        await db.users.update_one(
-            {"id": user["id"]},
-            {"$set": {"plan": plan, "generations_used": 0}},
-        )
-        await db.payment_transactions.update_one(
-            {"session_id": session_id},
-            {"$set": {
-                "payment_status": "paid",
-                "status": st_status,
-                "paid_at": datetime.now(timezone.utc).isoformat(),
-            }},
-        )
-    elif tx.get("payment_status") != st_payment_status:
-        await db.payment_transactions.update_one(
-            {"session_id": session_id},
-            {"$set": {"payment_status": st_payment_status, "status": st_status}},
-        )
-
-    return {
-        "status": st_status,
-        "payment_status": st_payment_status,
-        "amount_total": st_amount_total,
-        "currency": st_currency,
-        "plan": tx.get("plan"),
-    }
-
-
-@api.post("/webhook/stripe")
-async def stripe_webhook(request: Request):
-    api_key = os.environ.get("STRIPE_API_KEY")
-    stripe = StripeCheckout(api_key=api_key, webhook_url="https://placeholder/api/webhook/stripe")
-    body = await request.body()
-    sig = request.headers.get("Stripe-Signature", "")
-    try:
-        evt = await stripe.handle_webhook(body, sig)
-    except Exception as e:
-        raise HTTPException(400, f"Webhook error: {e}")
-
-    if evt.event_type == "checkout.session.completed" and evt.payment_status == "paid":
-        meta = evt.metadata or {}
-        uid = meta.get("user_id")
-        plan = meta.get("plan")
-        if uid and plan in PLAN_LIMITS:
-            await db.users.update_one({"id": uid}, {"$set": {"plan": plan, "generations_used": 0}})
-            await db.payment_transactions.update_one(
-                {"session_id": evt.session_id},
-                {"$set": {
-                    "payment_status": "paid",
-                    "status": "complete",
-                    "paid_at": datetime.now(timezone.utc).isoformat(),
-                }},
-            )
-    return {"received": True}
 
 
 # ---------- Mount ----------
 app.include_router(api)
+app.include_router(billing_router)
+app.include_router(webhook_router)
+app.include_router(admin_router)
+app.include_router(announcement_public_router)
+app.include_router(referrals_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -1515,6 +1394,24 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+async def startup():
+    try:
+        await stripe_service.ensure_prices()
+    except Exception as ex:
+        log.warning(f"stripe ensure_prices failed: {ex}")
+    # Ensure OWNER gets admin role if account already exists
+    owner = os.environ.get("OWNER_EMAIL", "").lower()
+    if owner:
+        try:
+            await db.users.update_one(
+                {"email": owner},
+                {"$set": {"role": "admin"}},
+            )
+        except Exception:
+            pass
+
+
 @app.on_event("shutdown")
 async def shutdown():
-    client.close()
+    close_client()

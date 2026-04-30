@@ -1,6 +1,6 @@
 import { Link, NavLink, Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../auth";
-import { LayoutDashboard, Package, Megaphone, Rocket, LogOut, Zap, Settings as SettingsIcon } from "lucide-react";
+import { LayoutDashboard, Package, Megaphone, Rocket, LogOut, Zap, Settings as SettingsIcon, Users, Shield } from "lucide-react";
 
 export default function AppLayout() {
   const { user, logout, loading } = useAuth();
@@ -44,6 +44,14 @@ export default function AppLayout() {
           <NavLink to="/app/settings" className={link} data-testid="nav-settings">
             <SettingsIcon className="w-4 h-4" /> Integrations
           </NavLink>
+          <NavLink to="/app/referrals" className={link} data-testid="nav-referrals">
+            <Users className="w-4 h-4" /> Referrals
+          </NavLink>
+          {user.role === "admin" && (
+            <NavLink to="/app/admin" className={link} data-testid="nav-admin">
+              <Shield className="w-4 h-4" /> Admin
+            </NavLink>
+          )}
         </nav>
 
         {/* Usage */}

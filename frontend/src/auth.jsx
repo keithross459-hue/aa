@@ -36,10 +36,11 @@ export function AuthProvider({ children }) {
     return r.data.user;
   };
 
-  const signup = async (email, password, name) => {
-    const r = await api.post("/auth/signup", { email, password, name });
+  const signup = async (email, password, name, referralCode) => {
+    const r = await api.post("/auth/signup", { email, password, name, referral_code: referralCode || undefined });
     localStorage.setItem("filthy_token", r.data.token);
     setUser(r.data.user);
+    localStorage.removeItem("filthy_ref");
     return r.data.user;
   };
 

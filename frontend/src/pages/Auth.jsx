@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth";
 import { Zap } from "lucide-react";
 
@@ -11,18 +11,25 @@ export default function Auth({ mode }) {
   const { login, signup } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
+  const [search] = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const refCode = search.get("ref") || localStorage.getItem("filthy_ref") || "";
+
+  useEffect(() => {
+    const q = search.get("ref");
+    if (q) localStorage.setItem("filthy_ref", q);
+  }, [search]);
 
   const submit = async (e) => {
     e.preventDefault();
     setErr("");
     setBusy(true);
     try {
-      if (isSignup) await signup(email, password, name);
+      if (isSignup) await signup(email, password, name, refCode);
       else await login(email, password);
       nav("/app", { replace: true });
     } catch (ex) {

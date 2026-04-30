@@ -77,6 +77,22 @@ export default function Dashboard() {
         </Link>
       )}
 
+      {stats && stats.plan !== "free" && (
+        <div className="mb-10 border border-zinc-800 bg-zinc-950 p-6 flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-500 mb-1">▮ Subscription</div>
+            <div className="font-heading text-2xl uppercase">
+              {stats.plan} — {stats.generations_used}/{stats.plan_limit} generations this cycle
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Link to="/app/referrals" className="border border-zinc-700 text-white font-mono text-xs uppercase tracking-widest px-4 py-2 hover:bg-white hover:text-black">
+              Share + earn
+            </Link>
+          </div>
+        </div>
+      )}
+
       <div className="border border-zinc-800 bg-zinc-950">
         <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
           <div className="font-mono text-xs uppercase tracking-widest">Latest products</div>
