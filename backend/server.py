@@ -1,89 +1,1520 @@
-from fastapi import FastAPI, APIRouter
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
+"""
+FiiLTHY.AI — Viral Marketing SaaS Backend
+- JWT Auth
+- AI generates Digital Products
+- Per-product Ad Campaigns
+- Multi-store launch (user-configured credentials)
+- Per-user integration credentials (encrypted)
+- Product PDF / ZIP downloads
+- Plan/usage tracking
+"""
+import io
 import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+import os
 import uuid
-from datetime import datetime, timezone
+import zipfile
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional
 
+import bcrypt
+import jwt as pyjwt
+from dotenv import load_dotenv
+from emergentintegrations.llm.chat import LlmChat, UserMessage
+from emergentintegrations.payments.stripe.checkout import (
+    CheckoutSessionRequest,
+    StripeCheckout,
+)
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import RedirectResponse, Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from starlette.middleware.cors import CORSMiddleware
 
+from integrations import meta_ads, settings as user_settings
+from integrations.downloads import (
+    build_library_zip,
+    build_product_bundle_zip,
+    build_product_pdf,
+)
+from integrations.gumroad import create_product as gumroad_create_product
+from integrations.gumroad import verify_token as gumroad_verify
+from integrations.stores import (
+    payhip_create_product,
+    stan_create_product,
+    whop_create_product,
+)
+from integrations.tiktok_ai import generate_tiktok_posts
+
+# ---------- Setup ----------
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+MONGO_URL = os.environ["MONGO_URL"]
+DB_NAME = os.environ["DB_NAME"]
+JWT_SECRET = os.environ["JWT_SECRET"]
+EMERGENT_LLM_KEY = os.environ["EMERGENT_LLM_KEY"]
 
-# Create the main app without a prefix
-app = FastAPI()
+client = AsyncIOMotorClient(MONGO_URL)
+db = client[DB_NAME]
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+app = FastAPI(title="FiiLTHY.AI API")
+api = APIRouter(prefix="/api")
+bearer = HTTPBearer(auto_error=False)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+log = logging.getLogger("filthy")
+
+# ---------- Constants ----------
+PLAN_LIMITS = {"free": 5, "starter": 50, "pro": 500, "enterprise": 999999}
+PLAN_PRICES_USD = {"starter": 29.00, "pro": 79.00, "enterprise": 299.00}
+STORES = [
+    {"id": "gumroad", "name": "Gumroad", "real": True},
+    {"id": "stan_store", "name": "Stan Store", "real": True},
+    {"id": "whop", "name": "Whop", "real": True},
+    {"id": "payhip", "name": "Payhip", "real": True},
+    {"id": "etsy_digital", "name": "Etsy Digital", "real": False},
+    {"id": "stripe_link", "name": "Stripe Payment Link", "real": False},
+    {"id": "shopify_digital", "name": "Shopify Digital", "real": False},
+]
+AD_PLATFORMS = ["TikTok Ads", "Meta Ads", "YouTube Ads", "Twitter Ads", "Pinterest Ads"]
 
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+# ---------- Models ----------
+class SignupReq(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6)
+    name: str = Field(min_length=1)
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
+class LoginReq(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    email: str
+    name: str
+    plan: str
+    generations_used: int
+    plan_limit: int
+
+
+class AuthResp(BaseModel):
+    token: str
+    user: UserOut
+
+
+class GenerateProductReq(BaseModel):
+    niche: str = Field(min_length=2)
+    audience: Optional[str] = None
+    product_type: Optional[str] = "ebook"
+    price_hint: Optional[str] = None
+    extra_notes: Optional[str] = None
+
+
+class Product(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    user_id: str
+    title: str
+    tagline: str
+    description: str
+    target_audience: str
+    price: float
+    product_type: str
+    bullet_features: List[str]
+    outline: List[str]
+    sales_copy: str
+    cover_concept: str
+    created_at: str
+    campaigns_count: int = 0
+    launched_stores: List[str] = []
+
+
+class CampaignReq(BaseModel):
+    product_id: str
+    angle: Optional[str] = None
+
+
+class AdVariant(BaseModel):
+    platform: str
+    hook: str
+    script: str
+    cta: str
+    hashtags: List[str]
+    targeting: str
+
+
+class Campaign(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    user_id: str
+    product_id: str
+    product_title: str
+    angle: str
+    daily_budget_suggestion: float
+    variants: List[AdVariant]
+    created_at: str
+
+
+class LaunchReq(BaseModel):
+    product_id: str
+    stores: Optional[List[str]] = None
+
+
+class StoreListing(BaseModel):
+    store_id: str
+    store_name: str
+    listing_url: str
+    status: str
+    listing_title: str
+    listing_description: str
+    launched_at: str
+    real: bool = False
+    error: Optional[str] = None
+
+
+class CheckoutReq(BaseModel):
+    plan: Literal["starter", "pro", "enterprise"]
+    origin_url: str
+
+
+class ClickEventReq(BaseModel):
+    product_id: str
+    source: Literal["tiktok", "meta"]
+    content_id: str
+
+
+class SaleEventReq(BaseModel):
+    product_id: str
+    source: Literal["tiktok", "meta"]
+    content_id: str
+    value: float = 0.0
+
+
+WINNER_MIN_CLICKS = 20
+WINNER_MIN_CONVERSION = 0.02
+WINNER_MIN_REVENUE = 50.0
+
+
+class LaunchResult(BaseModel):
+    product_id: str
+    listings: List[StoreListing]
+
+
+class UpdateSettingsReq(BaseModel):
+    """Shape: { provider_id: {field: value, ...}, ... }"""
+    providers: Dict[str, Dict[str, Optional[str]]]
+
+
+# ---------- Auth helpers ----------
+def _hash_pw(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+
+
+def _verify_pw(pw: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(pw.encode(), hashed.encode())
+    except Exception:
+        return False
+
+
+def _make_token(user_id: str) -> str:
+    payload = {
+        "sub": user_id,
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc) + timedelta(days=30),
+    }
+    return pyjwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+
+async def current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer)):
+    if not creds:
+        raise HTTPException(401, "Not authenticated")
+    try:
+        payload = pyjwt.decode(creds.credentials, JWT_SECRET, algorithms=["HS256"])
+        uid = payload["sub"]
+    except Exception:
+        raise HTTPException(401, "Invalid token")
+    user = await db.users.find_one({"id": uid}, {"_id": 0, "password": 0})
+    if not user:
+        raise HTTPException(401, "User not found")
+    return user
+
+
+def _user_out(u: dict) -> UserOut:
+    return UserOut(
+        id=u["id"],
+        email=u["email"],
+        name=u["name"],
+        plan=u.get("plan", "free"),
+        generations_used=u.get("generations_used", 0),
+        plan_limit=PLAN_LIMITS.get(u.get("plan", "free"), 5),
+    )
+
+
+async def _check_and_increment_usage(user: dict):
+    plan = user.get("plan", "free")
+    used = user.get("generations_used", 0)
+    limit = PLAN_LIMITS.get(plan, 5)
+    if used >= limit:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "LIMIT_REACHED", "message": f"Used {used}/{limit} on {plan} plan. Upgrade to continue."},
+        )
+    await db.users.update_one({"id": user["id"]}, {"$inc": {"generations_used": 1}})
+
+
+# ---------- LLM helper ----------
+async def llm_json(system: str, prompt: str, session_id: str, api_key_override: Optional[str] = None) -> str:
+    chat = LlmChat(
+        api_key=api_key_override or EMERGENT_LLM_KEY,
+        session_id=session_id,
+        system_message=system,
+    ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+    resp = await chat.send_message(UserMessage(text=prompt))
+    return resp
+
+
+def _safe_json_parse(text: str):
+    import json
+    import re
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    m = re.search(r"```(?:json)?\s*(\{[\s\S]*\}|\[[\s\S]*\])\s*```", text)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            pass
+    s = text.find("{")
+    e = text.rfind("}")
+    if s != -1 and e != -1:
+        try:
+            return json.loads(text[s: e + 1])
+        except Exception:
+            pass
+    raise HTTPException(500, "AI returned malformed output. Please retry.")
+
+
+# ---------- Routes: auth ----------
+@api.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"app": "FiiLTHY.AI", "status": "live"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+@api.post("/auth/signup", response_model=AuthResp)
+async def signup(req: SignupReq):
+    existing = await db.users.find_one({"email": req.email.lower()})
+    if existing:
+        raise HTTPException(400, "Email already registered")
+    uid = str(uuid.uuid4())
+    user_doc = {
+        "id": uid,
+        "email": req.email.lower(),
+        "name": req.name,
+        "password": _hash_pw(req.password),
+        "plan": "free",
+        "generations_used": 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(user_doc)
+    return AuthResp(token=_make_token(uid), user=_user_out(user_doc))
 
-# Include the router in the main app
-app.include_router(api_router)
 
+@api.post("/auth/login", response_model=AuthResp)
+async def login(req: LoginReq):
+    user = await db.users.find_one({"email": req.email.lower()})
+    if not user or not _verify_pw(req.password, user["password"]):
+        raise HTTPException(401, "Invalid credentials")
+    return AuthResp(token=_make_token(user["id"]), user=_user_out(user))
+
+
+@api.get("/auth/me", response_model=UserOut)
+async def me(user=Depends(current_user)):
+    return _user_out(user)
+
+
+# ---------- Routes: settings ----------
+@api.get("/settings")
+async def get_settings(user=Depends(current_user)):
+    """Return redacted provider creds + configured flags."""
+    raw = await user_settings.get_user_providers(db, user["id"])
+    providers_view: Dict[str, Any] = {}
+    for pid, required in user_settings.PROVIDERS.items():
+        doc = raw.get(pid)
+        providers_view[pid] = {
+            "configured": user_settings.is_configured(doc, required),
+            "fields": user_settings.redact_for_display(doc),
+            "required": required,
+        }
+    return {"providers": providers_view, "schema": user_settings.PROVIDERS}
+
+
+@api.put("/settings")
+async def update_settings(req: UpdateSettingsReq, user=Depends(current_user)):
+    """Save/update any subset of provider creds. Empty string => clear that field."""
+    current = await user_settings.get_user_providers(db, user["id"])
+    for provider, fields in (req.providers or {}).items():
+        if provider not in user_settings.PROVIDERS:
+            continue
+        # Merge: empty string clears the field; missing keeps existing
+        existing = current.get(provider, {}) or {}
+        to_save: Dict[str, Any] = {}
+        for field_name in user_settings.PROVIDERS[provider]:
+            if field_name in fields:
+                v = fields[field_name]
+                if v is None or str(v).strip() == "":
+                    continue  # cleared
+                to_save[field_name] = v
+            else:
+                # Keep existing (already encrypted/plain)
+                if field_name in existing:
+                    current[provider] = existing  # noop — will be reused below
+        prepared = user_settings.prepare_for_storage(provider, to_save)
+        # Merge: for fields the user did NOT send, keep existing entry
+        merged = dict(existing)
+        for k in user_settings.PROVIDERS[provider]:
+            if k in fields:
+                if str(fields[k] or "").strip() == "":
+                    merged.pop(k, None)   # explicit clear
+                elif k in prepared:
+                    merged[k] = prepared[k]
+        current[provider] = merged
+    await db.user_settings.update_one(
+        {"user_id": user["id"]},
+        {"$set": {
+            "providers": current,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }, "$setOnInsert": {"user_id": user["id"]}},
+        upsert=True,
+    )
+    return await get_settings(user)
+
+
+@api.delete("/settings/{provider}")
+async def clear_provider(provider: str, user=Depends(current_user)):
+    if provider not in user_settings.PROVIDERS:
+        raise HTTPException(400, "Unknown provider")
+    await db.user_settings.update_one(
+        {"user_id": user["id"]},
+        {"$unset": {f"providers.{provider}": ""}},
+    )
+    return await get_settings(user)
+
+
+@api.post("/settings/test/{provider}")
+async def test_provider(provider: str, user=Depends(current_user)):
+    """Run a lightweight credential test for the given provider."""
+    creds = await user_settings.get_provider_plain(db, user["id"], provider)
+    if not creds:
+        return {"ok": False, "error": "not_configured"}
+    if provider == "gumroad":
+        return await gumroad_verify(creds.get("access_token", ""))
+    if provider == "meta":
+        import httpx
+        token = creds.get("access_token", "")
+        if not token:
+            return {"ok": False, "error": "missing_token"}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as c:
+                r = await c.get(f"https://graph.facebook.com/v19.0/me?access_token={token}")
+            data = r.json()
+            if r.status_code < 400:
+                return {"ok": True, "name": data.get("name"), "id": data.get("id")}
+            return {"ok": False, "error": data.get("error", {}).get("message", f"http_{r.status_code}")}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    if provider == "stripe":
+        import httpx
+        sk = creds.get("secret_key", "")
+        if not sk:
+            return {"ok": False, "error": "missing_secret_key"}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as c:
+                r = await c.get("https://api.stripe.com/v1/account", headers={"Authorization": f"Bearer {sk}"})
+            if r.status_code < 400:
+                return {"ok": True, "account_id": r.json().get("id")}
+            return {"ok": False, "error": r.json().get("error", {}).get("message", f"http_{r.status_code}")}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    # Other providers: presence check only (publishing call is the real test)
+    return {"ok": True, "note": "credentials saved — publishing will perform full validation"}
+
+
+# ---------- Routes: products ----------
+@api.post("/products/generate", response_model=Product)
+async def generate_product(req: GenerateProductReq, user=Depends(current_user)):
+    await _check_and_increment_usage(user)
+
+    # Allow per-user OpenAI / Anthropic override (else platform Emergent LLM key)
+    # (For now we stick to Claude via Emergent key — platform-paid.)
+    sys_msg = (
+        "You are FiiLTHY.AI, a ruthless digital-product strategist for creator-economy hustlers. "
+        "Generate raw, edgy, conversion-focused digital products. "
+        "Always respond with STRICT VALID JSON only — no commentary, no markdown fences."
+    )
+    prompt = f"""Create a brand-new sellable digital product.
+
+Niche: {req.niche}
+Target audience: {req.audience or 'auto-detect a sharp niche audience'}
+Product type: {req.product_type}
+Price hint: {req.price_hint or 'recommend a price between $9 and $97'}
+Notes: {req.extra_notes or 'none'}
+
+Return JSON with EXACT keys:
+{{
+  "title": "string (bold, hook-style, max 8 words)",
+  "tagline": "string (one punchy line)",
+  "description": "string (2-3 sentence sales-ready blurb)",
+  "target_audience": "string (specific persona)",
+  "price": number (USD, no currency symbol),
+  "bullet_features": ["6 sharp benefit-driven bullets"],
+  "outline": ["7-10 chapter/module/section titles"],
+  "sales_copy": "string (~120 words punchy direct-response copy)",
+  "cover_concept": "string (one-line visual brief for the cover)"
+}}"""
+    raw = await llm_json(sys_msg, prompt, session_id=f"product-{user['id']}-{uuid.uuid4().hex[:8]}")
+    data = _safe_json_parse(raw)
+
+    pid = str(uuid.uuid4())
+    product = {
+        "id": pid,
+        "user_id": user["id"],
+        "title": str(data.get("title", "Untitled Product"))[:200],
+        "tagline": str(data.get("tagline", ""))[:300],
+        "description": str(data.get("description", ""))[:1500],
+        "target_audience": str(data.get("target_audience", req.audience or "creators"))[:300],
+        "price": float(data.get("price", 27.0)),
+        "product_type": req.product_type or "ebook",
+        "bullet_features": [str(b) for b in (data.get("bullet_features") or [])][:10],
+        "outline": [str(o) for o in (data.get("outline") or [])][:15],
+        "sales_copy": str(data.get("sales_copy", ""))[:3000],
+        "cover_concept": str(data.get("cover_concept", ""))[:500],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "campaigns_count": 0,
+        "launched_stores": [],
+    }
+    await db.products.insert_one(product.copy())
+    return Product(**product)
+
+
+@api.get("/products", response_model=List[Product])
+async def list_products(user=Depends(current_user)):
+    rows = await db.products.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return [Product(**r) for r in rows]
+
+
+@api.get("/products/{pid}", response_model=Product)
+async def get_product(pid: str, user=Depends(current_user)):
+    p = await db.products.find_one({"id": pid, "user_id": user["id"]}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Product not found")
+    return Product(**p)
+
+
+@api.delete("/products/{pid}")
+async def delete_product(pid: str, user=Depends(current_user)):
+    res = await db.products.delete_one({"id": pid, "user_id": user["id"]})
+    await db.campaigns.delete_many({"product_id": pid, "user_id": user["id"]})
+    await db.listings.delete_many({"product_id": pid, "user_id": user["id"]})
+    return {"deleted": res.deleted_count}
+
+
+# ---------- Product downloads ----------
+async def _fetch_bundle(pid: str, user_id: str):
+    product = await db.products.find_one({"id": pid, "user_id": user_id}, {"_id": 0})
+    if not product:
+        return None
+    campaigns = await db.campaigns.find({"product_id": pid, "user_id": user_id}, {"_id": 0}).to_list(100)
+    tiktok_posts = await db.tiktok_posts.find({"product_id": pid, "user_id": user_id}, {"_id": 0, "user_id": 0}).to_list(100)
+    return {"product": product, "campaigns": campaigns, "tiktok_posts": tiktok_posts}
+
+
+def _safe_filename(text: str) -> str:
+    import re
+    s = re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-")
+    return (s or "product")[:60]
+
+
+@api.get("/products/{pid}/download/pdf")
+async def download_product_pdf(pid: str, user=Depends(current_user)):
+    bundle = await _fetch_bundle(pid, user["id"])
+    if not bundle:
+        raise HTTPException(404, "Product not found")
+    pdf_bytes = build_product_pdf(bundle["product"])
+    fname = f"{_safe_filename(bundle['product'].get('title', 'product'))}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@api.get("/products/{pid}/download/bundle")
+async def download_product_bundle(pid: str, user=Depends(current_user)):
+    bundle = await _fetch_bundle(pid, user["id"])
+    if not bundle:
+        raise HTTPException(404, "Product not found")
+    zip_bytes = build_product_bundle_zip(
+        bundle["product"], bundle["campaigns"], bundle["tiktok_posts"],
+    )
+    fname = f"{_safe_filename(bundle['product'].get('title', 'product'))}-bundle.zip"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@api.get("/products/download/all")
+async def download_all_products(user=Depends(current_user)):
+    products = await db.products.find({"user_id": user["id"]}, {"_id": 0}).to_list(1000)
+    if not products:
+        raise HTTPException(404, "No products to download")
+    items = []
+    for p in products:
+        camps = await db.campaigns.find({"product_id": p["id"], "user_id": user["id"]}, {"_id": 0}).to_list(100)
+        tt = await db.tiktok_posts.find({"product_id": p["id"], "user_id": user["id"]}, {"_id": 0, "user_id": 0}).to_list(100)
+        items.append({"product": p, "campaigns": camps, "tiktok_posts": tt})
+    zip_bytes = build_library_zip(items)
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="filthy-library.zip"'},
+    )
+
+
+# ---------- Routes: campaigns ----------
+@api.post("/campaigns/generate", response_model=Campaign)
+async def generate_campaign(req: CampaignReq, user=Depends(current_user)):
+    product = await db.products.find_one({"id": req.product_id, "user_id": user["id"]}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    await _check_and_increment_usage(user)
+
+    sys_msg = (
+        "You are FiiLTHY.AI's ad campaign engine. Generate raw, scroll-stopping, conversion-focused "
+        "ad creatives for multiple platforms. Always respond with STRICT VALID JSON only."
+    )
+    prompt = f"""Build a multi-platform ad campaign for this product.
+
+Product: {product['title']}
+Tagline: {product['tagline']}
+Description: {product['description']}
+Audience: {product['target_audience']}
+Price: ${product['price']}
+Creative angle override: {req.angle or 'auto pick the highest-conversion angle'}
+
+Generate ONE ad variant for EACH of these 5 platforms: TikTok Ads, Meta Ads, YouTube Ads, Twitter Ads, Pinterest Ads.
+
+Return JSON with EXACT keys:
+{{
+  "angle": "string (the chosen creative angle)",
+  "daily_budget_suggestion": number (USD, between 10 and 200),
+  "variants": [
+    {{
+      "platform": "TikTok Ads",
+      "hook": "string (first 3 seconds, max 15 words, scroll-stopping)",
+      "script": "string (15-30 second script with timestamps like 0:00 / 0:05 / 0:15 / 0:25)",
+      "cta": "string (one strong CTA line)",
+      "hashtags": ["8 platform-relevant hashtags without #"],
+      "targeting": "string (one-line audience targeting brief)"
+    }},
+    ... (one per platform)
+  ]
+}}"""
+    raw = await llm_json(sys_msg, prompt, session_id=f"camp-{user['id']}-{uuid.uuid4().hex[:8]}")
+    data = _safe_json_parse(raw)
+
+    variants_data = data.get("variants") or []
+    variants: List[AdVariant] = []
+    for v in variants_data[:5]:
+        try:
+            variants.append(
+                AdVariant(
+                    platform=str(v.get("platform", "TikTok Ads")),
+                    hook=str(v.get("hook", ""))[:300],
+                    script=str(v.get("script", ""))[:2000],
+                    cta=str(v.get("cta", ""))[:200],
+                    hashtags=[str(h).lstrip("#") for h in (v.get("hashtags") or [])][:12],
+                    targeting=str(v.get("targeting", ""))[:400],
+                )
+            )
+        except Exception:
+            continue
+
+    cid = str(uuid.uuid4())
+    camp_doc = {
+        "id": cid,
+        "user_id": user["id"],
+        "product_id": product["id"],
+        "product_title": product["title"],
+        "angle": str(data.get("angle", req.angle or "Direct Response"))[:300],
+        "daily_budget_suggestion": float(data.get("daily_budget_suggestion", 25.0)),
+        "variants": [v.model_dump() for v in variants],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.campaigns.insert_one(camp_doc.copy())
+    await db.products.update_one({"id": product["id"]}, {"$inc": {"campaigns_count": 1}})
+    return Campaign(**camp_doc)
+
+
+@api.get("/campaigns", response_model=List[Campaign])
+async def list_campaigns(product_id: Optional[str] = None, user=Depends(current_user)):
+    q = {"user_id": user["id"]}
+    if product_id:
+        q["product_id"] = product_id
+    rows = await db.campaigns.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return [Campaign(**r) for r in rows]
+
+
+# ---------- Routes: launch ----------
+@api.get("/stores")
+async def list_stores():
+    return {"stores": STORES}
+
+
+def _slugify(text: str) -> str:
+    import re
+    s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return s[:60] or "product"
+
+
+@api.post("/launch", response_model=LaunchResult)
+async def launch_product(req: LaunchReq, user=Depends(current_user)):
+    product = await db.products.find_one({"id": req.product_id, "user_id": user["id"]}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    target_stores = req.stores or [s["id"] for s in STORES]
+    slug = _slugify(product["title"])
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Load per-user store credentials
+    providers = await user_settings.get_user_providers(db, user["id"])
+
+    def creds(name: str) -> Dict[str, str]:
+        return user_settings.decrypt_for_use(providers.get(name))
+
+    gumroad_c = creds("gumroad")
+    stan_c = creds("stan_store")
+    whop_c = creds("whop")
+    payhip_c = creds("payhip")
+
+    listings: List[StoreListing] = []
+    listing_docs = []
+    for sid in target_stores:
+        store = next((s for s in STORES if s["id"] == sid), None)
+        if not store:
+            continue
+
+        listing_title = f"{product['title']} — {product['tagline']}"[:140]
+        listing_description = product["description"][:500]
+        real = False
+        error = None
+        status_str = "SIMULATED"
+        url = f"https://{sid.replace('_', '-')}.fiilthy.ai/{slug}-{product['id'][:6]}"
+
+        price_cents = int(round(float(product.get("price", 27.0)) * 100))
+        full_desc = f"{product.get('sales_copy', product['description'])}\n\n---\n{chr(10).join(product.get('bullet_features', []))}"
+
+        try:
+            if sid == "gumroad" and gumroad_c.get("access_token"):
+                res = await gumroad_create_product(
+                    name=product["title"],
+                    price_cents=price_cents,
+                    description=full_desc,
+                    access_token=gumroad_c["access_token"],
+                )
+                if res.get("ok") and res.get("short_url"):
+                    url = res["short_url"]
+                    real = True
+                    status_str = "LIVE"
+                else:
+                    error = str(res.get("error", "gumroad_failed"))[:200]
+                    status_str = "FAILED"
+            elif sid == "stan_store" and stan_c.get("access_token"):
+                res = await stan_create_product(
+                    stan_c["access_token"], product["title"], price_cents, full_desc,
+                )
+                if res.get("ok") and res.get("short_url"):
+                    url = res["short_url"]
+                    real = True
+                    status_str = "LIVE"
+                else:
+                    error = str(res.get("error", "stan_failed"))[:200]
+                    status_str = "FAILED"
+            elif sid == "whop" and whop_c.get("api_key"):
+                res = await whop_create_product(
+                    whop_c["api_key"], product["title"], price_cents, full_desc,
+                )
+                if res.get("ok") and res.get("short_url"):
+                    url = res["short_url"]
+                    real = True
+                    status_str = "LIVE"
+                else:
+                    error = str(res.get("error", "whop_failed"))[:200]
+                    status_str = "FAILED"
+            elif sid == "payhip" and payhip_c.get("api_key"):
+                res = await payhip_create_product(
+                    payhip_c["api_key"], product["title"], price_cents, full_desc,
+                )
+                if res.get("ok") and res.get("short_url"):
+                    url = res["short_url"]
+                    real = True
+                    status_str = "LIVE"
+                else:
+                    error = str(res.get("error", "payhip_failed"))[:200]
+                    status_str = "FAILED"
+            elif sid in ("gumroad", "stan_store", "whop", "payhip"):
+                # Real-capable store but user has not configured creds → NOT_CONFIGURED
+                status_str = "NOT_CONFIGURED"
+                error = f"Add your {store['name']} credentials in Settings to publish for real."
+        except Exception as ex:
+            error = f"exception: {ex}"[:200]
+            status_str = "FAILED"
+
+        listing = StoreListing(
+            store_id=sid,
+            store_name=store["name"],
+            listing_url=url,
+            status=status_str,
+            listing_title=listing_title,
+            listing_description=listing_description,
+            launched_at=now,
+            real=real,
+            error=error,
+        )
+        listings.append(listing)
+        listing_docs.append({
+            **listing.model_dump(),
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "product_id": product["id"],
+        })
+
+    if listing_docs:
+        await db.listings.insert_many(listing_docs)
+    live_ids = [lst.store_id for lst in listings if lst.status in ("LIVE", "SIMULATED")]
+    if live_ids:
+        await db.products.update_one(
+            {"id": product["id"]},
+            {"$addToSet": {"launched_stores": {"$each": live_ids}}},
+        )
+
+    # ===== META ADS AUTO-LAUNCH (PAUSED) — uses per-user creds =====
+    meta_c = creds("meta")
+    meta_token = meta_c.get("access_token")
+    meta_ad_account = meta_c.get("ad_account_id")
+    meta_pixel = meta_c.get("pixel_id")
+    meta_page = meta_c.get("page_id")
+    existing_meta = await db.meta_launches.find_one(
+        {"product_id": product["id"], "user_id": user["id"]}, {"_id": 0}
+    )
+    product_url = next((lst.listing_url for lst in listings if lst.real), None) or (
+        listings[0].listing_url if listings else None
+    )
+    if meta_token and meta_ad_account and product_url and not existing_meta:
+        try:
+            camp_doc = await db.campaigns.find_one(
+                {"product_id": product["id"], "user_id": user["id"]},
+                {"_id": 0},
+                sort=[("created_at", -1)],
+            )
+            meta_variant = None
+            if camp_doc:
+                for v in camp_doc.get("variants", []):
+                    if v.get("platform") == "Meta Ads":
+                        meta_variant = v
+                        break
+
+            headlines = [meta_variant["hook"]] if meta_variant else [product["title"]]
+            primary_texts = [meta_variant["script"]] if meta_variant else [product["sales_copy"]]
+            image_urls = []
+
+            while len(headlines) < 3:
+                headlines.append(product["title"])
+            while len(primary_texts) < 3:
+                primary_texts.append(product["tagline"] or product["description"])
+            while len(image_urls) < 3:
+                image_urls.append("https://placehold.co/1200x630/09090B/FFD600/png?text=FiiLTHY")
+
+            camp_res = await meta_ads.create_campaign(
+                meta_ad_account, meta_token, name=f"FiiLTHY — {product['title'][:80]}"
+            )
+            if not camp_res.get("ok"):
+                await db.meta_launches.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "user_id": user["id"],
+                    "product_id": product["id"],
+                    "status": "failed",
+                    "stage": "campaign",
+                    "error": camp_res,
+                    "created_at": now,
+                })
+            else:
+                campaign_id = camp_res["campaign_id"]
+                adset_res = await meta_ads.create_ad_set(
+                    meta_ad_account, campaign_id, meta_token,
+                    name=f"FiiLTHY — {product['title'][:80]}",
+                    pixel_id=meta_pixel,
+                )
+                if not adset_res.get("ok"):
+                    await db.meta_launches.insert_one({
+                        "id": str(uuid.uuid4()),
+                        "user_id": user["id"],
+                        "product_id": product["id"],
+                        "campaign_id": campaign_id,
+                        "status": "failed",
+                        "stage": "adset",
+                        "error": adset_res,
+                        "created_at": now,
+                    })
+                else:
+                    adset_id = adset_res["adset_id"]
+                    ads = []
+                    errors = []
+                    for i in range(3):
+                        cr = await meta_ads.create_ad_creative(
+                            meta_ad_account, meta_token,
+                            headline=headlines[i],
+                            primary_text=primary_texts[i],
+                            image_url=image_urls[i],
+                            link=product_url,
+                            page_id=meta_page,
+                            name=f"FiiLTHY Creative {i+1} — {product['title'][:60]}",
+                        )
+                        if not cr.get("ok"):
+                            errors.append({"stage": f"creative_{i+1}", "error": cr})
+                            continue
+                        ad_res = await meta_ads.create_ad(
+                            meta_ad_account, adset_id, cr["creative_id"], meta_token,
+                            name=f"FiiLTHY Ad {i+1} — {product['title'][:60]}",
+                        )
+                        if not ad_res.get("ok"):
+                            errors.append({"stage": f"ad_{i+1}", "creative_id": cr["creative_id"], "error": ad_res})
+                            continue
+                        ads.append({
+                            "ad_id": ad_res["ad_id"],
+                            "creative_id": cr["creative_id"],
+                            "headline": headlines[i],
+                            "primary_text": primary_texts[i],
+                            "image_url": image_urls[i],
+                            "status": "PAUSED",
+                        })
+                    await db.meta_launches.insert_one({
+                        "id": str(uuid.uuid4()),
+                        "user_id": user["id"],
+                        "product_id": product["id"],
+                        "ad_account_id": meta_ad_account,
+                        "campaign_id": campaign_id,
+                        "adset_id": adset_id,
+                        "ads": ads,
+                        "product_url": product_url,
+                        "status": "PAUSED",
+                        "errors": errors,
+                        "stage": "complete" if ads else "failed_all_ads",
+                        "created_at": now,
+                    })
+                    await db.products.update_one(
+                        {"id": product["id"]},
+                        {"$set": {
+                            "meta_campaign_id": campaign_id,
+                            "meta_adset_id": adset_id,
+                            "meta_ad_ids": [a["ad_id"] for a in ads],
+                            "meta_status": "PAUSED",
+                        }},
+                    )
+        except Exception as ex:
+            log.error(f"Meta auto-launch exception for product {product['id']}: {ex}")
+            await db.meta_launches.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": user["id"],
+                "product_id": product["id"],
+                "status": "failed",
+                "stage": "exception",
+                "error": {"message": str(ex)},
+                "created_at": now,
+            })
+
+    # ===== TIKTOK AUTO-GENERATION =====
+    existing_tiktok = await db.tiktok_posts.count_documents(
+        {"product_id": product["id"], "user_id": user["id"]}
+    )
+    if existing_tiktok == 0:
+        try:
+            tt_posts = await generate_tiktok_posts(product, count=5)
+            for p in tt_posts:
+                p["created_at"] = now
+            if tt_posts:
+                await db.tiktok_posts.insert_many([{
+                    **p,
+                    "user_id": user["id"],
+                    "product_id": product["id"],
+                } for p in tt_posts])
+        except Exception as ex:
+            log.warning(f"TikTok auto-gen skipped for {product['id']}: {ex}")
+
+    return LaunchResult(product_id=product["id"], listings=listings)
+
+
+@api.get("/listings")
+async def get_listings(product_id: Optional[str] = None, user=Depends(current_user)):
+    q = {"user_id": user["id"]}
+    if product_id:
+        q["product_id"] = product_id
+    rows = await db.listings.find(q, {"_id": 0}).sort("launched_at", -1).to_list(1000)
+    return {"listings": rows}
+
+
+# ---------- Stats ----------
+@api.get("/stats")
+async def stats(user=Depends(current_user)):
+    products = await db.products.count_documents({"user_id": user["id"]})
+    campaigns = await db.campaigns.count_documents({"user_id": user["id"]})
+    listings = await db.listings.count_documents({"user_id": user["id"]})
+    # Count configured providers
+    providers = await user_settings.get_user_providers(db, user["id"])
+    configured = sum(
+        1 for pid, req in user_settings.PROVIDERS.items()
+        if user_settings.is_configured(providers.get(pid), req)
+    )
+    return {
+        "products": products,
+        "campaigns": campaigns,
+        "listings": listings,
+        "plan": user.get("plan", "free"),
+        "generations_used": user.get("generations_used", 0),
+        "plan_limit": PLAN_LIMITS.get(user.get("plan", "free"), 5),
+        "integrations_configured": configured,
+        "integrations_total": len(user_settings.PROVIDERS),
+    }
+
+
+# ---------- Meta Ads ----------
+@api.get("/meta/export/{product_id}")
+async def meta_export(product_id: str, user=Depends(current_user)):
+    product = await db.products.find_one({"id": product_id, "user_id": user["id"]}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+
+    listings_rows = await db.listings.find(
+        {"product_id": product_id, "user_id": user["id"]}, {"_id": 0}
+    ).to_list(50)
+    real_listing = next((l for l in listings_rows if l.get("real")), None)
+    product_url = (real_listing or (listings_rows[0] if listings_rows else {})).get("listing_url", "")
+
+    camp = await db.campaigns.find_one(
+        {"product_id": product_id, "user_id": user["id"]},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+    headlines: List[str] = []
+    primary_texts: List[str] = []
+    image_urls: List[str] = []
+    if camp:
+        for v in camp.get("variants", []):
+            if v.get("platform") == "Meta Ads":
+                headlines.append(v.get("hook", ""))
+                primary_texts.append(v.get("script", ""))
+                break
+        for v in camp.get("variants", []):
+            if v.get("platform") in ("TikTok Ads", "YouTube Ads") and len(headlines) < 3:
+                headlines.append(v.get("hook", ""))
+                primary_texts.append(v.get("script", ""))
+
+    while len(headlines) < 3:
+        headlines.append(product["title"])
+    while len(primary_texts) < 3:
+        primary_texts.append(product.get("sales_copy") or product["description"])
+    placeholder_img = "https://placehold.co/1200x630/09090B/FFD600/png?text=FiiLTHY"
+    while len(image_urls) < 3:
+        image_urls.append(placeholder_img)
+
+    creatives = []
+    backend_base = os.environ.get("BACKEND_URL", "")
+    for i in range(3):
+        cid = f"meta_ad_{i+1}"
+        per_creative_url = _track_url(backend_base, product_id, "meta", cid) if backend_base else _append_utm(product_url, "meta", product_id, cid)
+        creatives.append({
+            "content_id": cid,
+            "headline": headlines[i][:300],
+            "primary_text": primary_texts[i][:1800],
+            "image_url": image_urls[i],
+            "recommended": i == 0,
+            "tracking_url": per_creative_url,
+        })
+
+    return {
+        "campaign": {
+            "name": f"{product['title']} - Conversion Campaign"[:200],
+            "objective": "Sales",
+        },
+        "targeting": {
+            "locations": ["US", "CA"],
+            "type": "broad",
+            "optimization": "Conversions",
+        },
+        "creatives": creatives,
+        "product_url": product_url,
+        "ads_manager_url": "https://adsmanager.facebook.com/adsmanager/manage/campaigns",
+    }
+
+
+@api.get("/meta/launch/{product_id}")
+async def get_meta_launch(product_id: str, user=Depends(current_user)):
+    ml = await db.meta_launches.find_one(
+        {"product_id": product_id, "user_id": user["id"]}, {"_id": 0}
+    )
+    if not ml:
+        raise HTTPException(404, "No Meta launch for this product")
+    return ml
+
+
+@api.post("/meta/activate/{product_id}")
+async def activate_meta(product_id: str, user=Depends(current_user)):
+    ml = await db.meta_launches.find_one(
+        {"product_id": product_id, "user_id": user["id"]}, {"_id": 0}
+    )
+    if not ml:
+        raise HTTPException(404, "No Meta launch for this product")
+    meta_c = await user_settings.get_provider_plain(db, user["id"], "meta")
+    token = meta_c.get("access_token")
+    if not token:
+        raise HTTPException(400, "Meta credentials not configured in Settings")
+
+    campaign_id = ml.get("campaign_id")
+    adset_id = ml.get("adset_id")
+    ads = ml.get("ads", []) or []
+
+    if not campaign_id or not adset_id or not ads:
+        raise HTTPException(400, "Meta launch incomplete — nothing to activate")
+
+    results = {"campaign": None, "adset": None, "ads": [], "errors": []}
+
+    try:
+        c = await meta_ads.set_status(campaign_id, "ACTIVE", token)
+        results["campaign"] = c
+        if not c.get("ok"):
+            results["errors"].append({"stage": "campaign", "error": c})
+
+        a = await meta_ads.set_status(adset_id, "ACTIVE", token)
+        results["adset"] = a
+        if not a.get("ok"):
+            results["errors"].append({"stage": "adset", "error": a})
+
+        for ad in ads:
+            r = await meta_ads.set_status(ad["ad_id"], "ACTIVE", token)
+            results["ads"].append({"ad_id": ad["ad_id"], "result": r})
+            if not r.get("ok"):
+                results["errors"].append({"stage": f"ad:{ad['ad_id']}", "error": r})
+    except Exception as ex:
+        log.error(f"Meta activate exception: {ex}")
+        raise HTTPException(500, {"message": "meta_activate_failed", "error": str(ex)})
+
+    all_ok = (
+        results["campaign"].get("ok")
+        and results["adset"].get("ok")
+        and all(x["result"].get("ok") for x in results["ads"])
+    )
+    new_status = "ACTIVE" if all_ok else "PARTIAL"
+    now = datetime.now(timezone.utc).isoformat()
+    await db.meta_launches.update_one(
+        {"product_id": product_id, "user_id": user["id"]},
+        {"$set": {"status": new_status, "activated_at": now, "last_activation_result": results}},
+    )
+    await db.products.update_one(
+        {"id": product_id, "user_id": user["id"]},
+        {"$set": {"meta_status": new_status}},
+    )
+    return {"ok": all_ok, "status": new_status, "results": results}
+
+
+# ---------- TikTok Content Engine ----------
+@api.post("/tiktok/generate/{product_id}")
+async def tiktok_generate(product_id: str, user=Depends(current_user)):
+    product = await db.products.find_one({"id": product_id, "user_id": user["id"]}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    await _check_and_increment_usage(user)
+    try:
+        posts = await generate_tiktok_posts(product, count=5)
+    except Exception as ex:
+        log.error(f"TikTok gen failed for {product_id}: {ex}")
+        raise HTTPException(500, f"TikTok generation failed: {ex}")
+
+    now = datetime.now(timezone.utc).isoformat()
+    for p in posts:
+        p["created_at"] = now
+    await db.tiktok_posts.delete_many({"product_id": product_id, "user_id": user["id"]})
+    docs = [{
+        **p,
+        "user_id": user["id"],
+        "product_id": product_id,
+    } for p in posts]
+    if docs:
+        await db.tiktok_posts.insert_many(docs)
+    return {"posts": posts, "count": len(posts)}
+
+
+@api.get("/tiktok/export/{product_id}")
+async def tiktok_export(product_id: str, user=Depends(current_user)):
+    product = await db.products.find_one({"id": product_id, "user_id": user["id"]}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    rows = await db.tiktok_posts.find(
+        {"product_id": product_id, "user_id": user["id"]}, {"_id": 0, "user_id": 0}
+    ).sort("created_at", -1).to_list(100)
+
+    listings_rows = await db.listings.find(
+        {"product_id": product_id, "user_id": user["id"]}, {"_id": 0}
+    ).to_list(50)
+    real_listing = next((l for l in listings_rows if l.get("real")), None)
+    product_url = (real_listing or (listings_rows[0] if listings_rows else {})).get("listing_url", "")
+
+    backend_base = os.environ.get("BACKEND_URL", "")
+    for idx, r in enumerate(rows):
+        content_id = f"tiktok_post_{idx+1}"
+        r["content_id"] = content_id
+        if backend_base:
+            r["tracking_url"] = _track_url(backend_base, product_id, "tiktok", content_id)
+        else:
+            r["tracking_url"] = _append_utm(product_url, "tiktok", product_id, content_id)
+
+    return {
+        "product_title": product["title"],
+        "product_url": product_url,
+        "posts": rows,
+        "count": len(rows),
+    }
+
+
+# ---------- Tracking & Winner Detection ----------
+def _append_utm(url: str, source: str, product_id: str, content_id: str) -> str:
+    if not url:
+        return url
+    from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+    parsed = urlparse(url)
+    params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    params["utm_source"] = source
+    params["utm_campaign"] = product_id
+    params["utm_content"] = content_id
+    return urlunparse(parsed._replace(query=urlencode(params)))
+
+
+def _track_url(backend_base: str, product_id: str, source: str, content_id: str) -> str:
+    from urllib.parse import urlencode
+    q = urlencode({"product_id": product_id, "source": source, "content_id": content_id})
+    return f"{backend_base.rstrip('/')}/api/track/go?{q}"
+
+
+def _is_winner(clicks: int, sales: int, revenue: float) -> bool:
+    conv = (sales / clicks) if clicks else 0.0
+    return (clicks >= WINNER_MIN_CLICKS and conv >= WINNER_MIN_CONVERSION) or revenue >= WINNER_MIN_REVENUE
+
+
+async def _compute_performance(product_id: str, user_id: str) -> Dict[str, Any]:
+    pipeline = [
+        {"$match": {"product_id": product_id, "user_id": user_id}},
+        {"$group": {
+            "_id": {"source": "$source", "content_id": "$content_id"},
+            "clicks": {"$sum": {"$cond": [{"$eq": ["$event_type", "click"]}, 1, 0]}},
+            "sales": {"$sum": {"$cond": [{"$eq": ["$event_type", "sale"]}, 1, 0]}},
+            "revenue": {"$sum": {"$cond": [{"$eq": ["$event_type", "sale"]}, {"$ifNull": ["$value", 0]}, 0]}},
+        }},
+    ]
+    rows = await db.tracking_events.aggregate(pipeline).to_list(1000)
+    performance: List[Dict[str, Any]] = []
+    winners: List[str] = []
+    for r in rows:
+        clicks = int(r.get("clicks", 0))
+        sales = int(r.get("sales", 0))
+        revenue = float(r.get("revenue", 0.0))
+        conv = (sales / clicks) if clicks else 0.0
+        win = _is_winner(clicks, sales, revenue)
+        src = r["_id"]["source"]
+        cid = r["_id"]["content_id"]
+        performance.append({
+            "source": src,
+            "content_id": cid,
+            "clicks": clicks,
+            "sales": sales,
+            "revenue": round(revenue, 2),
+            "conversion_rate": round(conv, 4),
+            "is_winner": win,
+        })
+        if win:
+            winners.append(f"{src}:{cid}")
+    performance.sort(key=lambda x: (x["revenue"], x["clicks"]), reverse=True)
+    return {"performance": performance, "winners": winners}
+
+
+@api.post("/track/click")
+async def track_click(req: ClickEventReq, user=Depends(current_user)):
+    product = await db.products.find_one({"id": req.product_id, "user_id": user["id"]}, {"_id": 0, "id": 1})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    await db.tracking_events.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "product_id": req.product_id,
+        "source": req.source,
+        "content_id": req.content_id,
+        "event_type": "click",
+        "value": 0.0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True}
+
+
+@api.post("/track/sale")
+async def track_sale(req: SaleEventReq, user=Depends(current_user)):
+    product = await db.products.find_one({"id": req.product_id, "user_id": user["id"]}, {"_id": 0, "id": 1})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    await db.tracking_events.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "product_id": req.product_id,
+        "source": req.source,
+        "content_id": req.content_id,
+        "event_type": "sale",
+        "value": float(req.value or 0.0),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    await db.products.update_one(
+        {"id": req.product_id, "user_id": user["id"]},
+        {"$inc": {"revenue": float(req.value or 0.0), "sales_count": 1}},
+    )
+    perf = await _compute_performance(req.product_id, user["id"])
+    await db.products.update_one(
+        {"id": req.product_id, "user_id": user["id"]},
+        {"$set": {"winners": perf["winners"]}},
+    )
+    return {"ok": True, "winners": perf["winners"]}
+
+
+@api.get("/track/go")
+async def track_go_redirect(product_id: str, source: str, content_id: str):
+    if source not in ("tiktok", "meta"):
+        raise HTTPException(400, "Invalid source")
+    prod = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not prod:
+        raise HTTPException(404, "Product not found")
+
+    await db.tracking_events.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": prod["user_id"],
+        "product_id": product_id,
+        "source": source,
+        "content_id": content_id,
+        "event_type": "click",
+        "value": 0.0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    listings_rows = await db.listings.find({"product_id": product_id}, {"_id": 0}).to_list(20)
+    real = next((l for l in listings_rows if l.get("real")), None)
+    dest = (real or (listings_rows[0] if listings_rows else {})).get("listing_url")
+    if not dest:
+        raise HTTPException(404, "No destination URL")
+    final_url = _append_utm(dest, source, product_id, content_id)
+    return RedirectResponse(url=final_url, status_code=302)
+
+
+@api.get("/analytics/{product_id}")
+async def analytics(product_id: str, user=Depends(current_user)):
+    product = await db.products.find_one({"id": product_id, "user_id": user["id"]}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    perf = await _compute_performance(product_id, user["id"])
+
+    totals = {
+        "clicks": sum(p["clicks"] for p in perf["performance"]),
+        "sales": sum(p["sales"] for p in perf["performance"]),
+        "revenue": round(sum(p["revenue"] for p in perf["performance"]), 2),
+    }
+    totals["conversion_rate"] = round(
+        (totals["sales"] / totals["clicks"]) if totals["clicks"] else 0.0, 4
+    )
+
+    return {
+        "product_id": product_id,
+        "product_title": product["title"],
+        "totals": totals,
+        "performance": perf["performance"],
+        "winners": perf["winners"],
+        "rules": {
+            "min_clicks": WINNER_MIN_CLICKS,
+            "min_conversion": WINNER_MIN_CONVERSION,
+            "min_revenue": WINNER_MIN_REVENUE,
+        },
+    }
+
+
+# ---------- Billing (Stripe Checkout) ----------
+def _stripe_api_key_for(user_creds: Dict[str, str]) -> Optional[str]:
+    """Prefer per-user stripe key; fall back to env."""
+    return (user_creds.get("secret_key") or os.environ.get("STRIPE_API_KEY") or "").strip() or None
+
+
+@api.post("/billing/create-checkout")
+async def create_checkout(req: CheckoutReq, user=Depends(current_user)):
+    amount = PLAN_PRICES_USD.get(req.plan)
+    if amount is None:
+        raise HTTPException(400, "Invalid plan")
+    user_stripe = await user_settings.get_provider_plain(db, user["id"], "stripe")
+    api_key = _stripe_api_key_for(user_stripe)
+    if not api_key:
+        raise HTTPException(500, "Stripe not configured")
+
+    origin = req.origin_url.rstrip("/")
+    success_url = f"{origin}/billing/success?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin}/pricing"
+
+    backend_base = os.environ.get("BACKEND_URL", origin).rstrip("/")
+    stripe = StripeCheckout(api_key=api_key, webhook_url=f"{backend_base}/api/webhook/stripe")
+    session = await stripe.create_checkout_session(
+        CheckoutSessionRequest(
+            amount=float(amount),
+            currency="usd",
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "user_id": user["id"],
+                "plan": req.plan,
+                "email": user["email"],
+            },
+        )
+    )
+
+    await db.payment_transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "session_id": session.session_id,
+        "user_id": user["id"],
+        "email": user["email"],
+        "plan": req.plan,
+        "amount": float(amount),
+        "currency": "usd",
+        "payment_status": "pending",
+        "status": "initiated",
+        "metadata": {"user_id": user["id"], "plan": req.plan, "email": user["email"]},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"url": session.url, "session_id": session.session_id}
+
+
+@api.get("/billing/status/{session_id}")
+async def checkout_status(session_id: str, user=Depends(current_user)):
+    tx = await db.payment_transactions.find_one(
+        {"session_id": session_id, "user_id": user["id"]}, {"_id": 0}
+    )
+    if not tx:
+        raise HTTPException(404, "Transaction not found")
+
+    user_stripe = await user_settings.get_provider_plain(db, user["id"], "stripe")
+    api_key = _stripe_api_key_for(user_stripe)
+    if not api_key:
+        return {
+            "status": tx.get("status", "pending"),
+            "payment_status": tx.get("payment_status", "pending"),
+            "amount_total": int(float(tx.get("amount", 0)) * 100),
+            "currency": tx.get("currency", "usd"),
+            "plan": tx.get("plan"),
+        }
+    stripe = StripeCheckout(api_key=api_key, webhook_url="https://placeholder/api/webhook/stripe")
+    try:
+        st = await stripe.get_checkout_status(session_id)
+        st_status = st.status
+        st_payment_status = st.payment_status
+        st_amount_total = st.amount_total
+        st_currency = st.currency
+    except Exception as ex:
+        log.warning(f"Stripe status fetch failed for {session_id}: {ex}")
+        return {
+            "status": tx.get("status", "pending"),
+            "payment_status": tx.get("payment_status", "pending"),
+            "amount_total": int(float(tx.get("amount", 0)) * 100),
+            "currency": tx.get("currency", "usd"),
+            "plan": tx.get("plan"),
+            "note": "provider_lookup_failed",
+        }
+
+    if st_payment_status == "paid" and tx.get("payment_status") != "paid":
+        plan = tx.get("plan", "starter")
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {"plan": plan, "generations_used": 0}},
+        )
+        await db.payment_transactions.update_one(
+            {"session_id": session_id},
+            {"$set": {
+                "payment_status": "paid",
+                "status": st_status,
+                "paid_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+    elif tx.get("payment_status") != st_payment_status:
+        await db.payment_transactions.update_one(
+            {"session_id": session_id},
+            {"$set": {"payment_status": st_payment_status, "status": st_status}},
+        )
+
+    return {
+        "status": st_status,
+        "payment_status": st_payment_status,
+        "amount_total": st_amount_total,
+        "currency": st_currency,
+        "plan": tx.get("plan"),
+    }
+
+
+@api.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    api_key = os.environ.get("STRIPE_API_KEY")
+    stripe = StripeCheckout(api_key=api_key, webhook_url="https://placeholder/api/webhook/stripe")
+    body = await request.body()
+    sig = request.headers.get("Stripe-Signature", "")
+    try:
+        evt = await stripe.handle_webhook(body, sig)
+    except Exception as e:
+        raise HTTPException(400, f"Webhook error: {e}")
+
+    if evt.event_type == "checkout.session.completed" and evt.payment_status == "paid":
+        meta = evt.metadata or {}
+        uid = meta.get("user_id")
+        plan = meta.get("plan")
+        if uid and plan in PLAN_LIMITS:
+            await db.users.update_one({"id": uid}, {"$set": {"plan": plan, "generations_used": 0}})
+            await db.payment_transactions.update_one(
+                {"session_id": evt.session_id},
+                {"$set": {
+                    "payment_status": "paid",
+                    "status": "complete",
+                    "paid_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+    return {"received": True}
+
+
+# ---------- Mount ----------
+app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
+async def shutdown():
     client.close()

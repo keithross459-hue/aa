@@ -1,0 +1,117 @@
+{
+  "project_name": "FiiLTHY.AI",
+  "theme": "dark",
+  "archetype": "Archetype 4: Swiss & High-Contrast (Brutalist/Anti-Corporate Variant)",
+  "vibe": "Bold, raw, edgy, gritty, anti-corporate, creator-economy hustle aesthetic.",
+  "colors": {
+    "background": "#09090B",
+    "foreground": "#F4F4F5",
+    "primary": {
+      "DEFAULT": "#FF3333",
+      "foreground": "#FFFFFF"
+    },
+    "secondary": {
+      "DEFAULT": "#FFD600",
+      "foreground": "#09090B"
+    },
+    "muted": {
+      "DEFAULT": "#27272A",
+      "foreground": "#A1A1AA"
+    },
+    "border": "#27272A",
+    "card": {
+      "DEFAULT": "#09090B",
+      "foreground": "#F4F4F5"
+    }
+  },
+  "typography": {
+    "font_families": {
+      "heading": "'Bebas Neue', sans-serif",
+      "body": "'Outfit', sans-serif",
+      "mono": "'JetBrains Mono', monospace"
+    },
+    "rules": {
+      "h1": "text-6xl sm:text-7xl lg:text-8xl font-heading tracking-tight uppercase",
+      "h2": "text-4xl sm:text-5xl lg:text-6xl font-heading tracking-tight uppercase",
+      "h3": "text-2xl sm:text-3xl font-heading tracking-wide uppercase",
+      "body": "text-base md:text-lg font-body leading-relaxed text-zinc-300",
+      "overline": "text-xs font-mono uppercase tracking-[0.2em] text-zinc-400"
+    },
+    "install_instructions": "Add Google Fonts imports for 'Bebas Neue', 'Outfit', and 'JetBrains Mono' to index.css"
+  },
+  "spacing_and_layout": {
+    "generous_spacing": "Use massive padding (py-24, py-32) for marketing sections.",
+    "bento_grid": "Use asymmetrical grid layouts (col-span-8, col-span-4) in marketing. Use dense, rigid grids in the dashboard.",
+    "alignment": "Prioritize left-alignment for brutalist tension. Avoid center-everything.",
+    "borders": "Expose the skeleton. Use grid borders (border-collapse, border-r, border-b border-zinc-800)."
+  },
+  "component_overrides": {
+    "shadcn_ui": {
+      "radius": "0rem (rounded-none for maximum brutalism)",
+      "buttons": "Flat background, sharp corners. Use hard solid drop shadows on hover for CTAs (e.g., hover:-translate-y-1 hover:-translate-x-1 hover:shadow-[4px_4px_0px_0px_#FFD600] transition-all duration-200).",
+      "cards": "border-zinc-800 border bg-zinc-950 rounded-none. No soft drop shadows. Use 1px inner stroke.",
+      "inputs": "bg-transparent border-zinc-800 rounded-none focus:border-yellow-400 focus:ring-0 text-white font-mono"
+    }
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "Sharp, technical, raw. Use stroke-width 1.5 or 2."
+  },
+  "motion_and_interactions": {
+    "hover_states": "Invert colors (e.g., black bg/yellow text -> yellow bg/black text) for a harsh, instant feedback loop.",
+    "marquees": "Implement a fast kinetic marquee ('react-fast-marquee') with outline text (text-transparent stroke-white) for hype/energy on the landing page.",
+    "accessibility": "Respect prefers-reduced-motion. High contrast focus rings (ring-2 ring-yellow-400 ring-offset-2 ring-offset-zinc-950)."
+  },
+  "media_urls": {
+    "hero_background": {
+      "url": "https://images.unsplash.com/photo-1765539160785-e7953620488f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwyfHxjb250ZW50JTIwY3JlYXRvciUyMGRhcmslMjBzdHVkaW98ZW58MHx8fHwxNzc3MjYxODM1fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Man with braids working on computer with neon sign - Edgy Creator Vibe"
+    },
+    "studio_vibe": {
+      "url": "https://images.pexels.com/photos/36917952/pexels-photo-36917952.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Professional creator recording setup - Content Studio reference"
+    },
+    "dark_texture_bg": {
+      "url": "https://images.unsplash.com/photo-1768622943825-2416a5584b65?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwyfHxncml0dHklMjBjb25jcmV0ZSUyMHRleHR1cmUlMjBkYXJrfGVufDB8fHx8MTc3NzI2MTg0OHww&ixlib=rb-4.1.0&q=85",
+      "description": "Gritty concrete texture with diagonal light - Pricing or feature background"
+    },
+    "neon_cityscape": {
+      "url": "https://images.pexels.com/photos/36898814/pexels-photo-36898814.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Rain-soaked street reflecting neon lights - Post scheduler mood image"
+    }
+  },
+  "pages": {
+    "landing_page": {
+      "layout": "Massive typography. Overlay hero image with heavy bg-zinc-950/70. Add a massive kinetic text marquee 'GO VIRAL OR GO BROKE'.",
+      "features": "Bento grid (Mode A) showcasing chaotic but controlled feature cards."
+    },
+    "auth": {
+      "layout": "Split screen. Left: Gritty image with raw brand quote. Right: Brutalist login form with sharp inputs and yellow solid-shadow CTA button."
+    },
+    "dashboard": {
+      "layout": "Control Room Grid (Mode B). Dense, functional, border-heavy. Sidebar nav with neon red active state.",
+      "components": "Usage stats widgets with raw progress bars (straight, no border-radius, bright yellow). Plan badge as a sharp tag."
+    },
+    "content_studio": {
+      "layout": "Two-pane view. Left: Form inputs for AI generation (font-mono). Right: Generated viral scripts in a terminal-like window (bg-black, border-zinc-800, text-zinc-300).",
+      "components": "Include a 'Generate Viral Hook' button with high-contrast red styling."
+    },
+    "post_scheduler": {
+      "layout": "Calendar/List view. Instead of soft rounded bubbles, use hard rectangular event blocks.",
+      "components": "Tabs for TikTok/IG/YT/Twitter/LinkedIn (use raw text or lucide icons, high contrast active state)."
+    },
+    "pricing": {
+      "layout": "3-column CSS grid. Use dark concrete texture background.",
+      "tiers": [
+        "Free (5 gens) - Subtle border",
+        "Starter ($29) - White border",
+        "Pro ($79) - Yellow border + 'HUSTLER' badge. Heavy solid yellow shadow.",
+        "Enterprise ($299) - Red border"
+      ]
+    }
+  },
+  "testing": {
+    "requirements": "All interactive and key informational elements MUST include a 'data-testid' attribute (e.g., data-testid='generate-script-btn', data-testid='pricing-pro-tier')."
+  },
+  "instructions_to_main_agent": "Use purely custom HTML/Tailwind for marketing layout (avoid Shadcn Cards there). Use heavily customized Shadcn for dashboard and forms. Erase all border-radius (rounded-none). Never use purple/teal. Stick to Void Black, White, Red, and Yellow. Implement the Google Fonts exactly as defined. Do NOT use placeholder URLs—use the provided media_urls."
+}

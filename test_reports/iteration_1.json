@@ -1,0 +1,36 @@
+{
+  "summary": "Backend regression suite for FiiLTHY.AI — 24/24 tests passing. Covered auth (signup/login/me), per-user encrypted settings (CRUD, merge, redaction, clear-via-empty-string, test endpoint), product generation via Claude Sonnet 4.5, PDF/bundle ZIP/library ZIP downloads, campaign generation (5 platforms), launch flow with NOT_CONFIGURED status for unconfigured real stores, stats with integration counts, listings, and stores list.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_filthy_backend.py",
+    "/app/test_reports/pytest/filthy_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 1521 lines — exceeds the 700-line guideline; should be split into routers (auth, settings, products, downloads, launch, campaigns, tiktok, billing, tracking).",
+    "Stripe webhook in /api/webhook/stripe falls back to env var STRIPE_API_KEY which is no longer set (per-user model). Webhooks from any user's Stripe account will fail signature verification because the platform doesn't know which user's secret to use. Either drop the webhook handler or document that polling /api/billing/status is the source of truth.",
+    "In server.py update_settings the merge logic has dead code: `current[provider] = existing  # noop` inside the loop has no effect. Cleaner to remove it.",
+    "/api/products/download/all loops products and rebuilds each PDF synchronously inside the request — for users with many products this can be slow / memory-heavy. Consider streaming or background task.",
+    "stan_create_product / whop_create_product / payhip_create_product implementations were not directly inspected in this run — endpoints are wired but only NOT_CONFIGURED path tested; real-publish path will need a live token to validate.",
+    "decrypt() silently returns '' on InvalidToken — if SETTINGS_ENC_KEY rotates, all saved creds become invisible without log signal. Add a warning log.",
+    "Bare `except Exception` in many places masks real bugs — narrow exceptions in auth + LLM parse paths."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_filthy_backend.py"
+  ],
+  "success_rate": {"backend": "100% (24/24)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "Dynamic test users created per run: test_filthy_<uuid>@filthy.ai / test123. Primary credential from /app/memory/test_credentials.md (test1@filthy.ai) was not used to avoid colliding with prior runs.",
+  "seed_data_creation": "Per-run signup creates 3 throwaway users (main suite, fresh-launch user, empty-products user). All MongoDB-backed; no manual cleanup performed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test file lives at /app/backend/tests/test_filthy_backend.py — fully pytest-based, fixtures scoped at module level. Uses REACT_APP_BACKEND_URL from /app/frontend/.env. Each run takes ~2 minutes (LLM calls dominate). To re-run: cd /app/backend && python -m pytest tests/test_filthy_backend.py -v. NOTE: signup lowercases emails; tests already account for that. Launch test verifies NOT_CONFIGURED for the 4 real stores (gumroad/stan_store/whop/payhip) and SIMULATED for the other 3 (etsy_digital/stripe_link/shopify_digital). Real publish path (with valid Gumroad/Stan/Whop/Payhip tokens) was NOT tested — would require live credentials.",
+  "rca of the issue": "No product bugs found. Initial 4 test failures were all test-author bugs in this run: (a) email comparison didn't account for server-side lowercasing, (b) meta-configured assertion didn't account for pixel_id having been cleared in the previous test, (c) integration-count expectation off by one for the same reason. Fixed in the test file and all 24 cases now pass."
+}
