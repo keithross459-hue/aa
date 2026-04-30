@@ -7,8 +7,8 @@ import { useAuth } from "../auth";
 const TIERS = [
   { id: "free", name: "Free", price: "$0", limit: "5 generations", border: "border-zinc-800", badge: null, perks: ["5 product generations", "Basic ads", "All 7 stores", "Community support"] },
   { id: "starter", name: "Starter", price: "$29", limit: "50/mo", border: "border-white", badge: null, perks: ["50 generations", "All ad platforms", "All stores", "Email support"] },
-  { id: "pro", name: "Pro", price: "$79", limit: "500/mo", border: "border-[#FFD600]", badge: "HUSTLER", perks: ["500 generations", "Priority generation", "All stores + analytics", "Priority support"] },
-  { id: "enterprise", name: "Enterprise", price: "$299", limit: "Unlimited", border: "border-[#FF3333]", badge: null, perks: ["Unlimited", "API access", "White-label", "Dedicated success"] },
+  { id: "pro", name: "Pro", price: "$49.99", limit: "500/mo", border: "border-[#FFD600]", badge: "HUSTLER", perks: ["500 generations", "Priority generation", "All stores + analytics", "Priority support"] },
+  { id: "enterprise", name: "CEO", price: "$299.99", limit: "Unlimited", border: "border-[#FF3333]", badge: null, perks: ["Unlimited", "API access", "White-label", "Dedicated success"] },
 ];
 
 const TEX = "https://images.unsplash.com/photo-1768622943825-2416a5584b65?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwyfHxncml0dHklMjBjb25jcmV0ZSUyMHRleHR1cmUlMjBkYXJrfGVufDB8fHx8MTc3NzI2MTg0OHww&ixlib=rb-4.1.0&q=85";

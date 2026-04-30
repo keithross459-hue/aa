@@ -15,12 +15,14 @@ export default function Admin() {
   const [broadcastResult, setBroadcastResult] = useState(null);
   const [flags, setFlags] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
+  const [payouts, setPayouts] = useState([]);
   const [newAnnouncement, setNewAnnouncement] = useState({ title: "", body: "", active: true });
 
   const loadOverview = async () => setOverview((await api.get("/admin/overview")).data);
   const loadUsers = async (term = "") => setUsers((await api.get(`/admin/users${term ? `?q=${encodeURIComponent(term)}` : ""}`)).data.users);
   const loadFlags = async () => setFlags((await api.get("/admin/feature-flags")).data.flags);
   const loadAnnouncements = async () => setAnnouncements((await api.get("/admin/announcements")).data.announcements);
+  const loadPayouts = async () => setPayouts((await api.get("/admin/payouts")).data.payouts || []);
 
   useEffect(() => {
     if (user?.role !== "admin") return;
@@ -28,6 +30,7 @@ export default function Admin() {
     loadUsers();
     loadFlags();
     loadAnnouncements();
+    loadPayouts();
   }, [user]);
 
   const openUser = async (uid) => {
@@ -70,6 +73,12 @@ export default function Admin() {
     loadAnnouncements();
   };
 
+  const payoutAction = async (id, action) => {
+    await api.post(`/admin/payouts/${id}/${action}`, action === "reject" ? { reason: "Rejected in admin review" } : {});
+    loadPayouts();
+    loadOverview();
+  };
+
   if (user?.role !== "admin") {
     return (
       <div className="p-12">
@@ -85,6 +94,7 @@ export default function Admin() {
     { id: "overview", label: "Overview", icon: <TrendingUp className="w-3 h-3" /> },
     { id: "users", label: "Users", icon: <Users className="w-3 h-3" /> },
     { id: "broadcast", label: "Broadcast", icon: <Megaphone className="w-3 h-3" /> },
+    { id: "payouts", label: "Payouts", icon: <DollarSign className="w-3 h-3" /> },
     { id: "flags", label: "Feature Flags", icon: <Flag className="w-3 h-3" /> },
     { id: "announcements", label: "Announcements", icon: <Bell className="w-3 h-3" /> },
   ];
@@ -281,6 +291,34 @@ export default function Admin() {
           {broadcastResult && (
             <div className="mt-4 bg-zinc-900 border border-zinc-800 p-3 font-mono text-xs text-zinc-300" data-testid="broadcast-result">
               {broadcastResult.mode === "test" ? `Test: ${broadcastResult.result?.ok ? "✓" : "✗"}` : `Sent ${broadcastResult.sent}/${broadcastResult.total_recipients} (${broadcastResult.failed} failed)`}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "payouts" && (
+        <div className="border border-zinc-800 bg-zinc-950 max-w-5xl">
+          <div className="px-6 py-4 border-b border-zinc-800 font-mono text-xs uppercase tracking-widest">Referral payout approvals</div>
+          {payouts.length === 0 ? (
+            <div className="p-6 font-mono text-xs text-zinc-500 uppercase tracking-widest">No payout requests yet.</div>
+          ) : (
+            <div className="divide-y divide-zinc-800">
+              {payouts.map((p) => (
+                <div key={p.id} className="p-4 flex items-center justify-between gap-4 flex-wrap">
+                  <div>
+                    <div className="font-heading text-2xl uppercase">${p.amount} - {p.status}</div>
+                    <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
+                      {p.email || p.referrer_user_id} - risk {p.fraud?.risk || "low"}
+                    </div>
+                    {p.fraud?.signals?.length > 0 && <div className="text-[#FF3333] font-mono text-[10px] uppercase tracking-widest mt-1">{p.fraud.signals.join(", ")}</div>}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => payoutAction(p.id, "approve")} disabled={p.status !== "requested"} className="bg-[#FFD600] text-black font-mono text-[10px] uppercase tracking-widest px-3 py-2 disabled:opacity-40">Approve</button>
+                    <button onClick={() => payoutAction(p.id, "paid")} disabled={p.status !== "approved"} className="border border-zinc-700 text-white font-mono text-[10px] uppercase tracking-widest px-3 py-2 disabled:opacity-40">Paid</button>
+                    <button onClick={() => payoutAction(p.id, "reject")} disabled={p.status === "paid"} className="border border-[#FF3333] text-[#FF3333] font-mono text-[10px] uppercase tracking-widest px-3 py-2 disabled:opacity-40">Reject</button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

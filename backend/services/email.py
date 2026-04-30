@@ -90,6 +90,15 @@ TEMPLATES = {
             "Update payment method", f"{BRAND_URL}/pricing",
         ),
     },
+    "password_reset": {
+        "subject": "Reset your FiiLTHY password",
+        "render": lambda d: _wrap(
+            "Reset your password.",
+            "Use the secure link below to set a new password. It expires in one hour. "
+            "If you did not request this, you can ignore the email.",
+            "Reset password", d.get("reset_url", f"{BRAND_URL}/login"),
+        ),
+    },
     "plan_upgraded": {
         "subject": "Plan upgraded — {plan}",
         "render": lambda d: _wrap(
@@ -105,6 +114,22 @@ TEMPLATES = {
             "Your FiiLTHY subscription has been cancelled. You'll keep access until the end of your current billing period, then drop to the free plan.<br/><br/>"
             "Come back any time — your products and campaigns are saved.",
             "Reactivate", f"{BRAND_URL}/pricing",
+        ),
+    },
+    "cancellation_save": {
+        "subject": "Before you cancel FiiLTHY",
+        "render": lambda d: _wrap(
+            "Keep the machine running.",
+            "You can downgrade instead of cancelling and keep your products, ads, analytics, and referral engine active.",
+            "Review billing", f"{BRAND_URL}/app/billing",
+        ),
+    },
+    "upsell": {
+        "subject": "Unlock more launches with {plan}",
+        "render": lambda d: _wrap(
+            f"Upgrade to {d.get('plan', 'Pro')}.",
+            "Your next product needs more generations, faster launch assets, and deeper analytics. Upgrade when you are ready to scale.",
+            "Upgrade", f"{BRAND_URL}/pricing",
         ),
     },
     "product_sold": {
@@ -150,6 +175,31 @@ TEMPLATES = {
             f"You started a checkout for the <b>{d.get('plan', '').upper()}</b> plan but didn't finish. "
             "Your next product could be a winner — upgrade now and unlock more monthly generations.",
             "Finish checkout", f"{BRAND_URL}/pricing",
+        ),
+    },
+    "payout_requested": {
+        "subject": "Payout requested - ${amount}",
+        "render": lambda d: _wrap(
+            "Your referral payout is queued.",
+            f"We received your payout request for <b>${d.get('amount', 0)}</b>. "
+            "An admin will review fraud signals and approve it before payment.",
+            "View payout ledger", f"{BRAND_URL}/app/referrals",
+        ),
+    },
+    "payout_approved": {
+        "subject": "Payout approved - ${amount}",
+        "render": lambda d: _wrap(
+            "Your payout was approved.",
+            f"Your <b>${d.get('amount', 0)}</b> referral payout passed review and is ready to be paid.",
+            "View payout ledger", f"{BRAND_URL}/app/referrals",
+        ),
+    },
+    "payout_paid": {
+        "subject": "Payout sent - ${amount}",
+        "render": lambda d: _wrap(
+            "Referral payout paid.",
+            f"Your <b>${d.get('amount', 0)}</b> referral payout has been marked paid.",
+            "Share again", f"{BRAND_URL}/app/referrals",
         ),
     },
     "admin_broadcast": {

@@ -69,7 +69,7 @@ A creator-economy SaaS that turns a niche idea into a live, sellable digital pro
 |---|---|---|
 | Emergent LLM (Claude Sonnet 4.5) | LIVE | All AI generation |
 | Gumroad | LIVE | Real product publishing via access token |
-| Stripe Checkout | LIVE (pod test key `sk_test_emergent`) | Swap to user's `sk_live_...` for prod |
+| Stripe Checkout | LIVE (test key redacted) | Swap to user's live Stripe key for prod |
 | MongoDB | LOCAL (preview) | User's Atlas URL saved for prod swap |
 | Stan Store / Whop / Payhip / Etsy / Stripe Link / Shopify | SIMULATED | URLs are synthetic `*.fiilthy.ai` |
 | Meta / Instagram / TikTok / YouTube / ElevenLabs / SendGrid | STORED not wired | Tokens saved for future posting feature |
@@ -83,7 +83,7 @@ A creator-economy SaaS that turns a niche idea into a live, sellable digital pro
 
 ## Backlog (P0 → P2)
 - **P0** Real Stan Store / Whop integration (user's next most-used).
-- **P0** For prod: swap `STRIPE_API_KEY` to `sk_live_...` and verify status retrieval; swap `MONGO_URL` to Atlas.
+- **P0** For prod: set `STRIPE_API_KEY` / `STRIPE_SECRET_KEY` from the secure secret manager and verify status retrieval; swap `MONGO_URL` to Atlas.
 - **P1** Cover image generation via Gemini Nano Banana.
 - **P1** Organic post scheduler + actual posting via Meta/TikTok APIs (tokens already stored).
 - **P1** Actually launch generated ad creatives to Meta Ads Manager (token + ad account id available).
@@ -163,8 +163,8 @@ A creator-economy SaaS that turns a niche idea into a live, sellable digital pro
 - Dashboard subscription summary block + share-and-earn CTA for paid users.
 
 ### Integrations live
-- **SendGrid** (`SG.Z_83...`) — transactional emails. Note: sender `stackdigitz@gmail.com` must be verified in SendGrid → Sender Authentication before emails actually deliver; until then emails return `{ok:false}` without blocking any endpoint.
-- **Stripe LIVE** (`sk_live_51TKu8O...` + `whsec_ZNEyFg...`) — subscriptions working end-to-end (Checkout URL verified live, webhook signature verified, StripeObject→dict normalization via `.to_dict()` for stripe-python 15.x compatibility).
+- **SendGrid** (key redacted) — transactional emails. Note: sender must be verified in SendGrid → Sender Authentication before emails actually deliver; until then emails return `{ok:false}` without blocking any endpoint.
+- **Stripe LIVE** (keys redacted) — subscriptions working end-to-end (Checkout URL verified live, webhook signature verified, StripeObject→dict normalization via `.to_dict()` for stripe-python 15.x compatibility).
 
 ### Testing
 - `/app/backend/tests/test_phase1_backend.py` — 30 cases covering Stripe subscriptions, webhook dedupe, referral attribution, admin role gating, feature-flags, announcements, broadcast, ban/unban, download viral branding. **30/30 green** (iteration_3.json).
@@ -178,6 +178,6 @@ A creator-economy SaaS that turns a niche idea into a live, sellable digital pro
 ### Security items / user action required
 1. **Rotate all keys pasted in chat** — Stripe live, Anthropic, OpenAI, SendGrid, Meta, MongoDB Atlas, Gemini, Supabase, ElevenLabs, TikTok, YouTube, Instagram. They are now in chat history.
 2. **Verify SendGrid sender domain** — set up Sender Authentication at https://app.sendgrid.com/settings/sender_auth for `stackdigitz@gmail.com` or a branded domain.
-3. **Point Stripe webhook** at `https://gracious-easley-8.preview.emergentagent.com/api/webhook/stripe` in the Stripe dashboard if not already configured. Signing secret `whsec_ZNEy...` is already set.
+3. **Point Stripe webhook** at the production `/api/webhook/stripe` endpoint in the Stripe dashboard if not already configured. Signing secret must come from the secure secret manager.
 4. **Swap MongoDB to Atlas** only at production deploy time — preview is locked to local.
 

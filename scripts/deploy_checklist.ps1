@@ -1,0 +1,11 @@
+$ErrorActionPreference = "Stop"
+
+Write-Host "FiiLTHY deploy checklist"
+Write-Host "1. Create a new Render Blueprint from render.yaml"
+Write-Host "2. Enter Render secret env vars marked sync:false"
+Write-Host "3. Deploy Render backend and verify /api/health"
+Write-Host "4. Add api.fiilthy.ai to the Render service and configure the Render-provided CNAME"
+Write-Host "5. Confirm Vercel frontend project: fiilthy-ai-production-frontend"
+Write-Host "6. Confirm Vercel env var: REACT_APP_BACKEND_URL=https://api.fiilthy.ai"
+Write-Host "7. Deploy frontend if needed: cd frontend; vercel --prod"
+Write-Host "8. Verify: python scripts/verify_live.py --backend https://api.fiilthy.ai --frontend https://fiilthy.ai"

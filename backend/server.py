@@ -11,6 +11,8 @@ FiiLTHY.AI — Viral Marketing SaaS Backend
 import io
 import logging
 import os
+import hashlib
+import secrets
 import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -45,18 +47,22 @@ from integrations.stores import (
 from integrations.tiktok_ai import generate_tiktok_posts
 from routers.admin import public_router as announcement_public_router
 from routers.admin import router as admin_router
+from routers.analytics import router as analytics_router
 from routers.billing import router as billing_router
 from routers.billing import webhook_router as webhook_router
+from routers.machine import router as machine_router
 from routers.referrals import router as referrals_router
 from services import email as email_service
 from services import referrals as referral_service
+from services.llm_config import llm_api_key
+from services.security import RateLimitMiddleware, RequestLoggingMiddleware, SecurityHeadersMiddleware, ensure_indexes
 from services import stripe_service
 
 # ---------- Setup ----------
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-EMERGENT_LLM_KEY = os.environ["EMERGENT_LLM_KEY"]
+EMERGENT_LLM_KEY = llm_api_key()
 
 app = FastAPI(title="FiiLTHY.AI API")
 api = APIRouter(prefix="/api")
@@ -88,6 +94,15 @@ class SignupReq(BaseModel):
 class LoginReq(BaseModel):
     email: EmailStr
     password: str
+
+
+class ForgotPasswordReq(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordReq(BaseModel):
+    token: str = Field(min_length=20)
+    password: str = Field(min_length=6)
 
 
 class UserOut(BaseModel):
@@ -212,6 +227,7 @@ class SignupReqV2(BaseModel):
     password: str = Field(min_length=6)
     name: str = Field(min_length=1)
     referral_code: Optional[str] = None
+    website: Optional[str] = None  # bot honeypot; real users never see this
 
 
 def _user_out(u: dict) -> UserOut:
@@ -243,8 +259,11 @@ async def _check_and_increment_usage(user: dict):
 
 # ---------- LLM helper ----------
 async def llm_json(system: str, prompt: str, session_id: str, api_key_override: Optional[str] = None) -> str:
+    api_key = api_key_override or EMERGENT_LLM_KEY
+    if not api_key:
+        raise HTTPException(503, "AI generation is not configured")
     chat = LlmChat(
-        api_key=api_key_override or EMERGENT_LLM_KEY,
+        api_key=api_key,
         session_id=session_id,
         system_message=system,
     ).with_model("anthropic", "claude-sonnet-4-5-20250929")
@@ -282,8 +301,77 @@ async def root():
     return {"app": "FiiLTHY.AI", "status": "live"}
 
 
+@api.get("/health")
+async def health():
+    return {"ok": True, "service": "fiilthy-api"}
+
+
+@api.get("/ready")
+async def ready():
+    checks = {"mongo": False, "stripe_configured": stripe_service.configured()}
+    try:
+        await db.command("ping")
+        checks["mongo"] = True
+    except Exception:
+        pass
+    return {"ok": all([checks["mongo"]]), "checks": checks}
+
+
+@api.get("/status")
+async def public_status():
+    return {
+        "status": "operational",
+        "components": {
+            "api": "operational",
+            "database": "checked_by_/api/ready",
+            "stripe": "configured" if stripe_service.configured() else "not_configured",
+            "email": "configured" if os.environ.get("SENDGRID_API_KEY") else "not_configured",
+            "analytics": "configured" if os.environ.get("POSTHOG_API_KEY") else "not_configured",
+        },
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@api.get("/legal/privacy")
+async def privacy_policy():
+    company = os.environ.get("LEGAL_COMPANY_NAME", "FiiLTHY.AI")
+    contact = os.environ.get("LEGAL_CONTACT_EMAIL", os.environ.get("OWNER_EMAIL", "support@fiilthy.ai"))
+    return {
+        "title": "Privacy Policy",
+        "company": company,
+        "contact": contact,
+        "sections": [
+            "We collect account, billing, product generation, analytics, referral, and support data to operate the service.",
+            "Payments are processed by Stripe; we do not store raw card numbers.",
+            "Analytics may be processed with PostHog when configured.",
+            "Users may request export or deletion by contacting support, subject to legal and fraud-prevention retention duties.",
+        ],
+        "updated_at": datetime.now(timezone.utc).date().isoformat(),
+    }
+
+
+@api.get("/legal/terms")
+async def terms_of_service():
+    company = os.environ.get("LEGAL_COMPANY_NAME", "FiiLTHY.AI")
+    contact = os.environ.get("LEGAL_CONTACT_EMAIL", os.environ.get("OWNER_EMAIL", "support@fiilthy.ai"))
+    return {
+        "title": "Terms of Service",
+        "company": company,
+        "contact": contact,
+        "sections": [
+            "Use the platform lawfully and do not abuse generation, billing, referral, or launch systems.",
+            "Subscriptions renew monthly until cancelled through the billing center or Stripe portal.",
+            "Generated content should be reviewed by the user before publication.",
+            "Referral payouts are subject to threshold, fraud review, and admin approval.",
+        ],
+        "updated_at": datetime.now(timezone.utc).date().isoformat(),
+    }
+
+
 @api.post("/auth/signup", response_model=AuthResp)
 async def signup(req: SignupReqV2):
+    if req.website:
+        raise HTTPException(400, "Invalid signup")
     existing = await db.users.find_one({"email": req.email.lower()})
     if existing:
         raise HTTPException(400, "Email already registered")
@@ -330,6 +418,51 @@ async def login(req: LoginReq):
     if user.get("banned"):
         raise HTTPException(403, "Account suspended")
     return AuthResp(token=make_token(user["id"]), user=_user_out(user))
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordReq):
+    user = await db.users.find_one({"email": req.email.lower()}, {"_id": 0})
+    if not user or user.get("banned"):
+        return {"ok": True}
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    await db.password_reset_tokens.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "token_hash": token_hash,
+        "used": False,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    frontend = os.environ.get("FRONTEND_URL", os.environ.get("BACKEND_URL", "https://fiilthy.ai")).rstrip("/")
+    try:
+        await email_service.send_email(
+            user["email"],
+            "password_reset",
+            {"reset_url": f"{frontend}/login?reset={raw_token}", "name": user.get("name", "")},
+        )
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@api.post("/auth/reset-password")
+async def reset_password(req: ResetPasswordReq):
+    token_hash = hashlib.sha256(req.token.encode()).hexdigest()
+    now = datetime.now(timezone.utc).isoformat()
+    token_doc = await db.password_reset_tokens.find_one(
+        {"token_hash": token_hash, "used": False, "expires_at": {"$gte": now}},
+        {"_id": 0},
+    )
+    if not token_doc:
+        raise HTTPException(400, "Invalid or expired reset token")
+    await db.users.update_one({"id": token_doc["user_id"]}, {"$set": {"password": hash_pw(req.password)}})
+    await db.password_reset_tokens.update_one(
+        {"id": token_doc["id"]},
+        {"$set": {"used": True, "used_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True}
 
 
 @api.get("/auth/me", response_model=UserOut)
@@ -1384,18 +1517,45 @@ app.include_router(webhook_router)
 app.include_router(admin_router)
 app.include_router(announcement_public_router)
 app.include_router(referrals_router)
+app.include_router(analytics_router)
+app.include_router(machine_router)
 
+cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_credentials="*" not in cors_origins,
+    allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(
+    RateLimitMiddleware,
+    requests_per_minute=int(os.environ.get("RATE_LIMIT_PER_MINUTE", "120")),
 )
 
 
 @app.on_event("startup")
 async def startup():
+    sentry_dsn = os.environ.get("SENTRY_DSN")
+    if sentry_dsn:
+        try:
+            import sentry_sdk
+            from sentry_sdk.integrations.fastapi import FastApiIntegration
+
+            sentry_sdk.init(
+                dsn=sentry_dsn,
+                integrations=[FastApiIntegration()],
+                traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.05")),
+                environment=os.environ.get("APP_ENV", "production"),
+            )
+        except Exception as ex:
+            log.warning(f"sentry init failed: {ex}")
+    try:
+        await ensure_indexes(db)
+    except Exception as ex:
+        log.warning(f"index bootstrap failed: {ex}")
     try:
         await stripe_service.ensure_prices()
     except Exception as ex:

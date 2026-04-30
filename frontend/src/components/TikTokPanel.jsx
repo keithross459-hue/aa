@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { Loader2, Copy, CheckCircle2, Flame, RefreshCw, Music2 } from "lucide-react";
@@ -20,7 +20,7 @@ export default function TikTokPanel({ productId }) {
     setTimeout(() => setCopiedKey(""), 1400);
   };
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const r = await api.get(`/tiktok/export/${productId}`);
@@ -30,11 +30,11 @@ export default function TikTokPanel({ productId }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [productId]);
 
   useEffect(() => {
     load();
-  }, [productId]);
+  }, [load]);
 
   const generate = async () => {
     setErr("");

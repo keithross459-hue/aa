@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import api from "../api";
 import { Loader2, Flame, TrendingUp, MousePointerClick, DollarSign, Target } from "lucide-react";
 
@@ -7,7 +7,7 @@ export default function AnalyticsPanel({ productId }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const r = await api.get(`/analytics/${productId}`);
@@ -17,13 +17,13 @@ export default function AnalyticsPanel({ productId }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [productId]);
 
   useEffect(() => {
     load();
     const t = setInterval(load, 10000); // poll every 10s
     return () => clearInterval(t);
-  }, [productId]);
+  }, [load]);
 
   if (loading && !data) {
     return (

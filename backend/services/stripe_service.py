@@ -19,10 +19,14 @@ STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
 
+def _price(name: str, default: str) -> float:
+    return round(float(os.environ.get(name, default)), 2)
+
+
 PLAN_CONFIG = {
-    "starter": {"amount_usd": int(os.environ.get("STRIPE_PRICE_STARTER_USD", 29)), "limit": 50},
-    "pro": {"amount_usd": int(os.environ.get("STRIPE_PRICE_PRO_USD", 79)), "limit": 500},
-    "enterprise": {"amount_usd": int(os.environ.get("STRIPE_PRICE_ENTERPRISE_USD", 299)), "limit": 999999},
+    "starter": {"amount_usd": _price("STRIPE_PRICE_STARTER_USD", "29"), "limit": 50},
+    "pro": {"amount_usd": _price("STRIPE_PRICE_PRO_USD", "49.99"), "limit": 500},
+    "enterprise": {"amount_usd": _price("STRIPE_PRICE_ENTERPRISE_USD", "299.99"), "limit": 999999},
 }
 
 # Runtime cache of Stripe Price IDs, populated by ensure_prices()
@@ -71,14 +75,14 @@ async def ensure_prices() -> Dict[str, str]:
             )
             price = None
             for p in (prices.data or []):
-                if p.unit_amount == cfg["amount_usd"] * 100 and p.recurring and p.recurring.interval == "month" and p.active:
+                if p.unit_amount == int(round(cfg["amount_usd"] * 100)) and p.recurring and p.recurring.interval == "month" and p.active:
                     price = p
                     break
             if not price:
                 price = await _to_thread(
                     stripe.Price.create,
                     product=product.id,
-                    unit_amount=cfg["amount_usd"] * 100,
+                    unit_amount=int(round(cfg["amount_usd"] * 100)),
                     currency="usd",
                     recurring={"interval": "month"},
                     metadata={"filthy_plan": plan},
@@ -229,6 +233,37 @@ async def list_invoices_for_customer(customer_id: str, limit: int = 20) -> Dict[
             else:
                 rows.append(dict(i))
         return {"ok": True, "invoices": rows}
+    except Exception as ex:
+        return {"ok": False, "error": str(ex)}
+
+
+async def retrieve_invoice(invoice_id: str) -> Dict[str, Any]:
+    try:
+        inv = await _to_thread(stripe.Invoice.retrieve, invoice_id)
+        if hasattr(inv, "to_dict_recursive"):
+            inv = inv.to_dict_recursive()
+        elif hasattr(inv, "to_dict"):
+            inv = inv.to_dict()
+        return {"ok": True, "invoice": inv}
+    except Exception as ex:
+        return {"ok": False, "error": str(ex)}
+
+
+async def list_payment_methods(customer_id: str) -> Dict[str, Any]:
+    try:
+        methods = await _to_thread(stripe.PaymentMethod.list, customer=customer_id, type="card")
+        rows = []
+        for m in (methods.data or []):
+            raw = m.to_dict_recursive() if hasattr(m, "to_dict_recursive") else (m.to_dict() if hasattr(m, "to_dict") else dict(m))
+            card = raw.get("card") or {}
+            rows.append({
+                "id": raw.get("id"),
+                "brand": card.get("brand"),
+                "last4": card.get("last4"),
+                "exp_month": card.get("exp_month"),
+                "exp_year": card.get("exp_year"),
+            })
+        return {"ok": True, "payment_methods": rows}
     except Exception as ex:
         return {"ok": False, "error": str(ex)}
 

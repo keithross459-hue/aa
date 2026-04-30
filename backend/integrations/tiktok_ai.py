@@ -4,6 +4,7 @@ import uuid
 from typing import List, Dict, Any
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+from services.llm_config import llm_api_key
 
 SYSTEM_MSG = (
     "You are FiiLTHY.AI's TikTok viral content engine. "
@@ -45,9 +46,9 @@ def _safe_json_parse(text: str):
 
 async def generate_tiktok_posts(product: Dict[str, Any], count: int = 5) -> List[Dict[str, Any]]:
     """Generate `count` viral TikTok posts for the given product."""
-    api_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    api_key = llm_api_key()
     if not api_key:
-        raise RuntimeError("EMERGENT_LLM_KEY not configured")
+        raise RuntimeError("AI generation key not configured")
 
     prompt = f"""Generate {count} viral TikTok posts for this digital product.
 

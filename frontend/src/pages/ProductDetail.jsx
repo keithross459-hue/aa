@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import api from "../api";
 import { useAuth } from "../auth";
@@ -22,7 +22,7 @@ export default function ProductDetail() {
   const [launchBusy, setLaunchBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const [prod, camps, list, st] = await Promise.all([
         api.get(`/products/${id}`),
@@ -37,8 +37,8 @@ export default function ProductDetail() {
     } catch (ex) {
       if (ex?.response?.status === 404) nav("/app/products");
     }
-  };
-  useEffect(() => { load(); }, [id]);
+  }, [id, nav]);
+  useEffect(() => { load(); }, [load]);
 
   const generateCampaign = async () => {
     setErr(""); setBusy(true);

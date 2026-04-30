@@ -13,7 +13,7 @@ const PROVIDER_META = {
   stripe: {
     name: "Stripe",
     tagline: "Collect your own subscription + checkout revenue.",
-    help: "Use your Stripe secret key (sk_live_... or sk_test_...) from https://dashboard.stripe.com/apikeys",
+    help: "Use your Stripe live or test secret key from https://dashboard.stripe.com/apikeys",
     helpUrl: "https://dashboard.stripe.com/apikeys",
     fieldLabels: { secret_key: "Secret Key (sk_...)" },
   },

@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from core_auth import current_admin, current_user
 from db import db
 from services import email as email_service
+from services.llm_config import llm_configured
+from services import payouts as payout_service
 from services.audit import log_event
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -41,6 +43,10 @@ class AnnouncementReq(BaseModel):
     title: str
     body: str
     active: bool = True
+
+
+class PayoutRejectReq(BaseModel):
+    reason: Optional[str] = ""
 
 
 @router.get("/overview")
@@ -168,6 +174,38 @@ async def admin_transactions(limit: int = 100, admin=Depends(current_admin)):
     return {"transactions": rows}
 
 
+@router.get("/payouts")
+async def admin_payouts(status: Optional[str] = None, admin=Depends(current_admin)):
+    return await payout_service.list_admin_payouts(status=status)
+
+
+@router.post("/payouts/{payout_id}/approve")
+async def admin_approve_payout(payout_id: str, admin=Depends(current_admin)):
+    payout = await payout_service.approve_payout(payout_id, admin["id"])
+    if not payout:
+        raise HTTPException(404, "Payout not found")
+    await log_event(admin["id"], "admin.payout.approve", target_type="payout", target_id=payout_id)
+    return {"ok": True, "payout": payout}
+
+
+@router.post("/payouts/{payout_id}/paid")
+async def admin_mark_payout_paid(payout_id: str, admin=Depends(current_admin)):
+    payout = await payout_service.mark_payout_paid(payout_id, admin["id"])
+    if not payout:
+        raise HTTPException(404, "Payout not found")
+    await log_event(admin["id"], "admin.payout.paid", target_type="payout", target_id=payout_id)
+    return {"ok": True, "payout": payout}
+
+
+@router.post("/payouts/{payout_id}/reject")
+async def admin_reject_payout(payout_id: str, req: PayoutRejectReq, admin=Depends(current_admin)):
+    payout = await payout_service.reject_payout(payout_id, admin["id"], req.reason or "")
+    if not payout:
+        raise HTTPException(404, "Payout not found")
+    await log_event(admin["id"], "admin.payout.reject", target_type="payout", target_id=payout_id, metadata={"reason": req.reason})
+    return {"ok": True, "payout": payout}
+
+
 @router.get("/audit-logs")
 async def admin_audit_logs(limit: int = 100, admin=Depends(current_admin)):
     rows = await db.audit_logs.find({}, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500)).to_list(limit)
@@ -264,7 +302,7 @@ async def admin_system_health(admin=Depends(current_admin)):
     health = {
         "stripe": bool(os.environ.get("STRIPE_SECRET_KEY") or os.environ.get("STRIPE_API_KEY")),
         "sendgrid": bool(os.environ.get("SENDGRID_API_KEY")),
-        "emergent_llm": bool(os.environ.get("EMERGENT_LLM_KEY")),
+        "emergent_llm": llm_configured(),
         "owner_email": os.environ.get("OWNER_EMAIL"),
         "mongo_ping": False,
         "mongo_db": os.environ.get("DB_NAME"),

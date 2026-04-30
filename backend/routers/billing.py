@@ -1,14 +1,18 @@
 """Production Stripe billing — subscriptions, webhooks, portal, invoices."""
 from __future__ import annotations
 
+import io
 import logging
 import os
 import uuid
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import Response
 from pydantic import BaseModel
+import requests
 
 from core_auth import current_user
 from db import db
@@ -186,6 +190,7 @@ async def cancel_subscription(req: CancelReq, user=Depends(current_user)):
         }},
     )
     try:
+        await email_service.send_email(user["email"], "cancellation_save", {})
         await email_service.send_email(user["email"], "plan_cancelled", {})
     except Exception:
         pass
@@ -261,6 +266,63 @@ async def my_invoices(user=Depends(current_user)):
             "invoice_pdf": inv.get("invoice_pdf"),
         })
     return {"invoices": rows}
+
+
+@router.get("/receipts/{invoice_id}/pdf")
+async def download_receipt_pdf(invoice_id: str, user=Depends(current_user)):
+    cid = user.get("stripe_customer_id")
+    if cid:
+        res = await stripe_service.retrieve_invoice(invoice_id)
+        if res.get("ok"):
+            inv = res.get("invoice") or {}
+            if inv.get("customer") == cid and inv.get("invoice_pdf"):
+                pdf_resp = await asyncio.to_thread(requests.get, inv["invoice_pdf"], timeout=12)
+                if pdf_resp.status_code < 400:
+                    return Response(
+                        pdf_resp.content,
+                        media_type="application/pdf",
+                        headers={"Content-Disposition": f"attachment; filename=receipt-{invoice_id}.pdf"},
+                    )
+
+    tx = await db.payment_transactions.find_one(
+        {"user_id": user["id"], "$or": [{"invoice_id": invoice_id}, {"id": invoice_id}, {"session_id": invoice_id}]},
+        {"_id": 0},
+    )
+    if not tx:
+        raise HTTPException(404, "Receipt not found")
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(72, 720, "FiiLTHY.AI Receipt")
+    c.setFont("Helvetica", 11)
+    c.drawString(72, 684, f"Receipt: {invoice_id}")
+    c.drawString(72, 664, f"Customer: {user.get('email')}")
+    c.drawString(72, 644, f"Plan: {tx.get('plan', '-')}")
+    c.drawString(72, 624, f"Amount: ${tx.get('amount', 0)} {tx.get('currency', 'usd').upper()}")
+    c.drawString(72, 604, f"Status: {tx.get('payment_status', tx.get('status', '-'))}")
+    c.drawString(72, 584, f"Date: {(tx.get('paid_at') or tx.get('created_at') or '')[:10]}")
+    c.showPage()
+    c.save()
+    return Response(
+        buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=receipt-{invoice_id}.pdf"},
+    )
+
+
+@router.get("/payment-methods")
+async def payment_methods(user=Depends(current_user)):
+    cid = user.get("stripe_customer_id")
+    if not cid:
+        return {"payment_methods": [], "portal_required": True}
+    res = await stripe_service.list_payment_methods(cid)
+    if not res.get("ok"):
+        return {"payment_methods": [], "error": res.get("error")}
+    return {"payment_methods": res.get("payment_methods", []), "portal_required": False}
 
 
 # ---------- Webhook ----------

@@ -1,0 +1,85 @@
+services:
+  - type: web
+    name: fiilthy-ai-production-backend
+    runtime: python
+    plan: starter
+    region: oregon
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: BACKEND_URL
+        value: https://api.fiilthy.ai
+      - key: FRONTEND_URL
+        value: https://fiilthy.ai
+      - key: CORS_ORIGINS
+        value: https://fiilthy.ai,https://www.fiilthy.ai,https://fiilthy-ai-production-frontend.vercel.app
+      - key: FORCE_HTTPS
+        value: "true"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "120"
+      - key: DB_NAME
+        value: fiilthy
+      - key: BACKUP_DIR
+        value: backups
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_PREVIOUS_SECRETS
+        sync: false
+      - key: JWT_ISSUER
+        value: fiilthy.ai
+      - key: JWT_AUDIENCE
+        value: fiilthy-app
+      - key: STRIPE_PRICE_STARTER_USD
+        value: "29"
+      - key: STRIPE_PRICE_PRO_USD
+        value: "49.99"
+      - key: STRIPE_PRICE_ENTERPRISE_USD
+        value: "299.99"
+      - key: SENDGRID_FROM_EMAIL
+        value: no-reply@fiilthy.ai
+      - key: SENDGRID_FROM_NAME
+        value: FiiLTHY.AI
+      - key: POSTHOG_HOST
+        value: https://app.posthog.com
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0.05"
+      - key: LEGAL_COMPANY_NAME
+        value: FiiLTHY.AI
+      - key: LEGAL_CONTACT_EMAIL
+        value: support@fiilthy.ai
+      - key: REFERRAL_PAYOUT_THRESHOLD_USD
+        value: "50"
+      - key: MONGO_URL
+        sync: false
+      - key: OWNER_EMAIL
+        sync: false
+      - key: SETTINGS_ENC_KEY
+        sync: false
+      - key: EMERGENT_LLM_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: POSTHOG_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: GUMROAD_ACCESS_TOKEN
+        sync: false
+      - key: META_PIXEL_ID
+        sync: false
+      - key: META_PAGE_ID
+        sync: false

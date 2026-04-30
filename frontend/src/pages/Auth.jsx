@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth";
 import { Zap } from "lucide-react";
 
@@ -8,16 +8,18 @@ const HERO =
 
 export default function Auth({ mode }) {
   const isSignup = mode === "signup";
-  const { login, signup } = useAuth();
+  const { login, signup, forgotPassword, resetPassword } = useAuth();
   const nav = useNavigate();
-  const loc = useLocation();
   const [search] = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [err, setErr] = useState("");
+  const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
   const refCode = search.get("ref") || localStorage.getItem("filthy_ref") || "";
+  const resetToken = search.get("reset") || "";
+  const isReset = Boolean(resetToken) && !isSignup;
 
   useEffect(() => {
     const q = search.get("ref");
@@ -27,11 +29,20 @@ export default function Auth({ mode }) {
   const submit = async (e) => {
     e.preventDefault();
     setErr("");
+    setInfo("");
     setBusy(true);
     try {
-      if (isSignup) await signup(email, password, name, refCode);
-      else await login(email, password);
-      nav("/app", { replace: true });
+      if (isSignup) {
+        await signup(email, password, name, refCode);
+        nav("/app", { replace: true });
+      } else if (isReset) {
+        await resetPassword(resetToken, password);
+        setPassword("");
+        setInfo("Password reset. Log in with your new password.");
+      } else {
+        await login(email, password);
+        nav("/app", { replace: true });
+      }
     } catch (ex) {
       setErr(ex?.response?.data?.detail || "Failed. Try again.");
     } finally {
@@ -39,9 +50,26 @@ export default function Auth({ mode }) {
     }
   };
 
+  const forgot = async () => {
+    if (!email) {
+      setErr("Enter your email first.");
+      return;
+    }
+    setErr("");
+    setInfo("");
+    setBusy(true);
+    try {
+      await forgotPassword(email);
+      setInfo("If that email exists, a reset link is on the way.");
+    } catch {
+      setInfo("If that email exists, a reset link is on the way.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-[#09090B] text-white">
-      {/* Visual */}
       <div className="relative hidden lg:block border-r border-zinc-800">
         <img src={HERO} alt="" className="absolute inset-0 w-full h-full object-cover opacity-50" />
         <div className="absolute inset-0 bg-gradient-to-tr from-[#09090B] via-transparent to-[#09090B]/40" />
@@ -52,7 +80,7 @@ export default function Auth({ mode }) {
           </Link>
           <div>
             <div className="font-mono text-xs uppercase tracking-[0.3em] text-[#FFD600] mb-4">
-              ▮ Field manual
+              Field manual
             </div>
             <h2 className="font-heading text-5xl lg:text-6xl uppercase leading-[0.9]">
               "Polish is a luxury.
@@ -67,7 +95,6 @@ export default function Auth({ mode }) {
         </div>
       </div>
 
-      {/* Form */}
       <div className="flex items-center justify-center p-6 lg:p-12">
         <form onSubmit={submit} className="w-full max-w-md" data-testid="auth-form">
           <div className="lg:hidden flex items-center gap-2 mb-10">
@@ -75,13 +102,13 @@ export default function Auth({ mode }) {
             <span className="font-heading text-2xl">FiiLTHY<span className="text-[#FF3333]">.</span>AI</span>
           </div>
           <div className="font-mono text-xs uppercase tracking-[0.3em] text-zinc-500 mb-3">
-            {isSignup ? "▮ New filthy operator" : "▮ Welcome back"}
+            {isSignup ? "New filthy operator" : isReset ? "Secure reset" : "Welcome back"}
           </div>
           <h1 className="font-heading text-5xl uppercase mb-2">
-            {isSignup ? "Create account" : "Log in"}
+            {isSignup ? "Create account" : isReset ? "Reset password" : "Log in"}
           </h1>
           <p className="text-zinc-400 mb-8">
-            {isSignup ? "5 free generations. No card." : "Pick up where you left off."}
+            {isSignup ? "5 free generations. No card." : isReset ? "Set a fresh password." : "Pick up where you left off."}
           </p>
 
           {err && (
@@ -90,6 +117,11 @@ export default function Auth({ mode }) {
               data-testid="auth-error"
             >
               {String(err)}
+            </div>
+          )}
+          {info && (
+            <div className="bg-[#FFD600]/10 border border-[#FFD600] text-[#FFD600] font-mono text-xs uppercase tracking-widest px-4 py-3 mb-4">
+              {String(info)}
             </div>
           )}
 
@@ -120,7 +152,7 @@ export default function Auth({ mode }) {
             required
             minLength={6}
             type="password"
-            placeholder="••••••••"
+            placeholder="********"
             data-testid="auth-password-input"
           />
 
@@ -130,8 +162,18 @@ export default function Auth({ mode }) {
             className="w-full bg-[#FFD600] text-black font-mono text-sm uppercase tracking-widest py-4 btn-hard disabled:opacity-60"
             data-testid="auth-submit-btn"
           >
-            {busy ? "Working…" : isSignup ? "Create account →" : "Log in →"}
+            {busy ? "Working..." : isSignup ? "Create account ->" : isReset ? "Reset password ->" : "Log in ->"}
           </button>
+
+          {!isSignup && !isReset && (
+            <button
+              type="button"
+              onClick={forgot}
+              className="w-full mt-3 font-mono text-[10px] uppercase tracking-widest text-zinc-500 hover:text-[#FFD600]"
+            >
+              Forgot password?
+            </button>
+          )}
 
           <div className="mt-6 text-center font-mono text-xs text-zinc-500">
             {isSignup ? (

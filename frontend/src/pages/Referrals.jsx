@@ -6,6 +6,7 @@ export default function Referrals() {
   const [data, setData] = useState(null);
   const [board, setBoard] = useState([]);
   const [copied, setCopied] = useState(false);
+  const [payoutMsg, setPayoutMsg] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -33,6 +34,14 @@ export default function Referrals() {
       linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${url}`,
     };
     window.open(shareUrls[network] || data.share_url, "_blank");
+  };
+
+  const requestPayout = async () => {
+    setPayoutMsg("");
+    const r = await api.post("/referrals/payouts/request");
+    setPayoutMsg(r.data.ok ? `Payout requested for $${r.data.payout.amount}.` : (r.data.error || "Payout request blocked."));
+    const me = await api.get("/referrals/me");
+    setData(me.data);
   };
 
   if (!data) return <div className="p-12 font-mono text-zinc-400">Loading…</div>;
@@ -94,6 +103,32 @@ export default function Referrals() {
         ))}
       </div>
 
+      <div className="border border-zinc-800 bg-zinc-950 p-6 mb-10">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-500 mb-2">Payout automation</div>
+            <div className="font-heading text-3xl uppercase">${data.ledger?.available ?? 0} available</div>
+            <div className="text-zinc-400 text-sm mt-1">
+              Threshold ${data.ledger?.threshold_usd ?? 50} - Fraud risk {data.ledger?.fraud?.risk || "low"}
+            </div>
+          </div>
+          <button
+            onClick={requestPayout}
+            disabled={!data.ledger?.can_request}
+            className="bg-[#FFD600] text-black font-mono text-xs uppercase tracking-widest px-5 py-3 btn-hard disabled:opacity-40"
+            data-testid="request-payout-btn"
+          >
+            Request payout
+          </button>
+        </div>
+        {payoutMsg && <div className="mt-3 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">{payoutMsg}</div>}
+        {data.ledger?.fraud?.signals?.length > 0 && (
+          <div className="mt-3 font-mono text-[10px] uppercase tracking-widest text-[#FF3333]">
+            Signals: {data.ledger.fraud.signals.join(", ")}
+          </div>
+        )}
+      </div>
+
       <div className="border border-zinc-800 bg-zinc-950 mb-10">
         <div className="px-6 py-4 border-b border-zinc-800 font-mono text-xs uppercase tracking-widest flex items-center gap-2">
           <Trophy className="w-4 h-4 text-[#FFD600]" /> Leaderboard — top hustlers
@@ -117,10 +152,19 @@ export default function Referrals() {
         )}
       </div>
 
-      {data.commissions.length > 0 && (
+      {(data.commissions.length > 0 || data.ledger?.payouts?.length > 0) && (
         <div className="border border-zinc-800 bg-zinc-950">
           <div className="px-6 py-4 border-b border-zinc-800 font-mono text-xs uppercase tracking-widest">▮ Recent commissions</div>
           <div className="divide-y divide-zinc-800">
+            {(data.ledger?.payouts || []).map((p) => (
+              <div key={p.id} className="p-4 flex items-center justify-between">
+                <div>
+                  <div className="font-heading text-lg uppercase">Payout - {p.status}</div>
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">{p.created_at?.slice(0, 10)}</div>
+                </div>
+                <div className="font-heading text-2xl text-[#FF3333]">${p.amount}</div>
+              </div>
+            ))}
             {data.commissions.map((c) => (
               <div key={c.id} className="p-4 flex items-center justify-between">
                 <div>
