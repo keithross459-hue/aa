@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from dotenv import load_dotenv
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -54,6 +53,7 @@ from routers.machine import router as machine_router
 from routers.referrals import router as referrals_router
 from services import email as email_service
 from services import referrals as referral_service
+from services.llm_client import generate_text
 from services.llm_config import llm_api_key
 from services.security import RateLimitMiddleware, RequestLoggingMiddleware, SecurityHeadersMiddleware, ensure_indexes
 from services import stripe_service
@@ -262,13 +262,12 @@ async def llm_json(system: str, prompt: str, session_id: str, api_key_override: 
     api_key = api_key_override or EMERGENT_LLM_KEY
     if not api_key:
         raise HTTPException(503, "AI generation is not configured")
-    chat = LlmChat(
-        api_key=api_key,
+    return await generate_text(
+        system=system,
+        prompt=prompt,
         session_id=session_id,
-        system_message=system,
-    ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-    resp = await chat.send_message(UserMessage(text=prompt))
-    return resp
+        api_key=api_key,
+    )
 
 
 def _safe_json_parse(text: str):

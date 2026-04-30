@@ -3,7 +3,7 @@ import os
 import uuid
 from typing import List, Dict, Any
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from services.llm_client import generate_text
 from services.llm_config import llm_api_key
 
 SYSTEM_MSG = (
@@ -82,12 +82,12 @@ Return JSON with EXACT keys:
   ]
 }}"""
 
-    chat = LlmChat(
-        api_key=api_key,
+    resp = await generate_text(
+        system=SYSTEM_MSG,
+        prompt=prompt,
         session_id=f"tiktok-{uuid.uuid4().hex[:8]}",
-        system_message=SYSTEM_MSG,
-    ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-    resp = await chat.send_message(UserMessage(text=prompt))
+        api_key=api_key,
+    )
     data = _safe_json_parse(resp)
 
     posts_raw = data.get("posts", []) if isinstance(data, dict) else []
