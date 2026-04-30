@@ -218,7 +218,16 @@ async def update_subscription_plan(subscription_id: str, new_plan: str) -> Dict[
 async def list_invoices_for_customer(customer_id: str, limit: int = 20) -> Dict[str, Any]:
     try:
         invs = await _to_thread(stripe.Invoice.list, customer=customer_id, limit=limit)
-        rows = [i.to_dict_recursive() if hasattr(i, "to_dict_recursive") else dict(i) for i in (invs.data or [])]
+        rows = []
+        for i in (invs.data or []):
+            if isinstance(i, dict):
+                rows.append(i)
+            elif hasattr(i, "to_dict_recursive"):
+                rows.append(i.to_dict_recursive())
+            elif hasattr(i, "to_dict"):
+                rows.append(i.to_dict())
+            else:
+                rows.append(dict(i))
         return {"ok": True, "invoices": rows}
     except Exception as ex:
         return {"ok": False, "error": str(ex)}

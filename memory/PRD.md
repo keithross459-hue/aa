@@ -131,3 +131,53 @@ A creator-economy SaaS that turns a niche idea into a live, sellable digital pro
 - **P1** Add Stripe webhook secret per-user (current webhook handler still falls back to env; non-critical — polling `/api/billing/status` is authoritative).
 - **P2** Split `server.py` (now ~1500 lines) into routers.
 - **P2** `/api/products/download/all` rebuilds PDFs synchronously — move to streaming for large libraries.
+
+---
+
+## Iteration 6 — Phase 1 AI Business OS Upgrade (Apr 30, 2026)
+
+### Scope shipped (Phase 1 of 4)
+**Stripe subscription hardening + SendGrid email engine + CEO admin panel + Referral viral loop + modular backend refactor.**
+
+### New backend modules
+- `/app/backend/db.py` — shared Mongo client singleton.
+- `/app/backend/core_auth.py` — JWT + bcrypt + `current_user` + `current_admin` + `is_owner_email`.
+- `/app/backend/services/email.py` — SendGrid transactional engine with 10 branded HTML templates (welcome, payment_succeeded, payment_failed, plan_upgraded, plan_cancelled, product_sold, launch_success, referral_invite, referral_reward, abandoned_checkout, admin_broadcast).
+- `/app/backend/services/stripe_service.py` — idempotent Product+Price bootstrap on startup, subscription Checkout, cancel / reactivate / change_plan / portal / invoices, hard-fail webhook signature verification.
+- `/app/backend/services/referrals.py` — unique codes, attribution, commissions (20/25/30% tiers), leaderboard, per-user summary.
+- `/app/backend/services/audit.py` — lightweight admin action log.
+- `/app/backend/routers/billing.py` — `/api/billing/*` + `/api/webhook/stripe` (handles checkout.session.completed, invoice.paid, invoice.payment_failed, customer.subscription.{deleted,updated}, dedupes via stripe_events collection, fires referral commission + email on paid).
+- `/app/backend/routers/admin.py` — `/api/admin/*` (overview, users CRUD + ban/unban, transactions, audit-logs, feature-flags, announcements, broadcast email, system-health). Owner `stackdigitz@gmail.com` auto-promoted to `role=admin` on backend startup.
+- `/app/backend/routers/referrals.py` — `/api/referrals/me`, `/leaderboard`, `/resolve/{code}`.
+
+### Backend updates
+- `server.py`: `/auth/signup` now accepts `referral_code`, auto-creates user's own referral code, sends welcome email (non-blocking), auto-promotes OWNER_EMAIL to admin. `/auth/login` returns 403 if banned. `/auth/me` returns role / subscription_status / stripe_customer_id / banned. `/launch` fires `launch_success` email when ≥1 LIVE listing. Download endpoints now append "Powered by FiiLTHY" referral back-cover to PDFs + `README-powered-by-FiiLTHY.md` to ZIP bundles (every shared product becomes a viral loop).
+- Stripe LIVE prices auto-created on app startup: starter=`price_1TRmHJ...` ($29/mo), pro=`price_1TRmHK...` ($79/mo), enterprise=`price_1TRmHL...` ($299/mo).
+- Webhook signature verification now hard-fails when STRIPE_WEBHOOK_SECRET is unset.
+
+### Frontend
+- New `/app/referrals` page — unique link, copy, share to Twitter/Instagram/TikTok/LinkedIn, tile stats, leaderboard, commissions feed.
+- New `/app/admin` page — 5 tabs (Overview w/ MRR/ARR, Users search+ban/unban+detail, Broadcast email w/ test mode + plan filter, Feature flags, Announcements CRUD). Gated on `user.role === "admin"`.
+- Sidebar now shows Referrals nav for all, Admin nav only for admins.
+- Signup page captures `?ref=CODE` → localStorage → auto-attaches on account create.
+- Dashboard subscription summary block + share-and-earn CTA for paid users.
+
+### Integrations live
+- **SendGrid** (`SG.Z_83...`) — transactional emails. Note: sender `stackdigitz@gmail.com` must be verified in SendGrid → Sender Authentication before emails actually deliver; until then emails return `{ok:false}` without blocking any endpoint.
+- **Stripe LIVE** (`sk_live_51TKu8O...` + `whsec_ZNEyFg...`) — subscriptions working end-to-end (Checkout URL verified live, webhook signature verified, StripeObject→dict normalization via `.to_dict()` for stripe-python 15.x compatibility).
+
+### Testing
+- `/app/backend/tests/test_phase1_backend.py` — 30 cases covering Stripe subscriptions, webhook dedupe, referral attribution, admin role gating, feature-flags, announcements, broadcast, ban/unban, download viral branding. **30/30 green** (iteration_3.json).
+- Regression iteration_1 (original 24 cases) still green.
+
+### Known deferments / next phases
+- **Phase 2** (still TODO): deep Stripe invoices UI, subscription cancel/upgrade buttons inside the app, referral payouts flow (currently commissions are tracked as `pending_payout` but not auto-paid).
+- **Phase 3** (still TODO): PostHog analytics brain, executive dashboard with MRR/ARR charts (backend API exists; no PostHog key provided).
+- **Phase 4** (still TODO): one-click "Idea → Product → Ads → Social → Publish" orchestrator, glass/neon theme polish, content engine expansion (courses / memberships / newsletters).
+
+### Security items / user action required
+1. **Rotate all keys pasted in chat** — Stripe live, Anthropic, OpenAI, SendGrid, Meta, MongoDB Atlas, Gemini, Supabase, ElevenLabs, TikTok, YouTube, Instagram. They are now in chat history.
+2. **Verify SendGrid sender domain** — set up Sender Authentication at https://app.sendgrid.com/settings/sender_auth for `stackdigitz@gmail.com` or a branded domain.
+3. **Point Stripe webhook** at `https://gracious-easley-8.preview.emergentagent.com/api/webhook/stripe` in the Stripe dashboard if not already configured. Signing secret `whsec_ZNEy...` is already set.
+4. **Swap MongoDB to Atlas** only at production deploy time — preview is locked to local.
+
