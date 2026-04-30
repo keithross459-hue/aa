@@ -1,0 +1,28 @@
+{
+  "summary": "Phase 1 FiiLTHY.AI backend regression — Stripe StripeObject.get() bug retest. ALL 30/30 tests now PASS. Both previously-failing tests (test_billing_status_returns_dict and test_webhook_checkout_session_completed_updates_user) are GREEN. The webhook now correctly: (a) verifies signature, (b) inserts stripe_events row, (c) updates the matched user's plan / subscription_status / subscription_id / stripe_customer_id, and (d) returns {received:true,duplicate:true} on a second POST of the same event id without a second DB write. /api/billing/status/{session_id} now returns 200 with status/payment_status/amount_total/currency/plan keys after Stripe retrieves a real session. verify_webhook now hard-fails (400) when STRIPE_WEBHOOK_SECRET is missing — covered by test_webhook_bad_signature_returns_400.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase1_backend.py",
+    "/app/test_reports/pytest/phase1_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routers/billing.py — the prior fix was applied with the wrong SDK method name. stripe-python 15.0.1 (currently installed) does NOT expose `to_dict_recursive` (removed in stripe>=8.x). The handler `s = s_raw.to_dict_recursive() if hasattr(...) else dict(s_raw)` therefore fell through to `dict(s_raw)`, which failed inside StripeObject.__getitem__(0) → KeyError: 0 → HTTP 500. Same on line 274 webhook (`evt_dict = dict(event)`). Testing agent fixed by adding an `elif hasattr(x, 'to_dict')` branch that calls `.to_dict()` (which IS recursive in stripe 15.x and returns plain nested dicts). Recommend pinning stripe SDK in requirements.txt and dropping the dead `to_dict_recursive` branch entirely.",
+    "Consider extracting the StripeObject→dict normalization into a single helper (e.g. services/stripe_service._to_plain_dict) to avoid drift between checkout_status and stripe_webhook.",
+    "server.py is still 1418 lines; split remaining auth/products/launch routers as already done for billing/admin/referrals."
+  ],
+  "updated_files": [
+    "/app/backend/routers/billing.py"
+  ],
+  "success_rate": {"backend": "100% (30/30)", "frontend": "skipped per request"},
+  "test_credentials": "Per-run signup users + OWNER stackdigitz@gmail.com (re-created in fixture as ownerpass123). test1@filthy.ai / test123 password unverifiable in this env; not required by tests.",
+  "seed_data_creation": "Per run: 1 plain test user, 1 referral-attributed user, 1 LLM-generated product, 1 Stripe live checkout session, OWNER admin (deleted+re-signed each run). Test announcement created+deleted; TEST_FLAG persists (harmless).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 1 fully green. Run: cd /app/backend && python -m pytest tests/test_phase1_backend.py -v. Independent regression suite /app/backend/tests/test_filthy_backend.py (iteration_1) is still valid. The stripe-python version installed is 15.0.1 — `StripeObject` does NOT inherit from dict, has NO `to_dict_recursive`, but DOES have `to_dict()` which recursively converts nested objects to plain dicts. Any future Stripe SDK upgrade should re-verify this assumption. webhook signature verification correctly hard-fails when STRIPE_WEBHOOK_SECRET is unset (verified via test_webhook_bad_signature_returns_400 with bogus signature on a secret-set env).",
+  "rca of the issue": "Iteration 2 reported `obj.get(...)` AttributeError on StripeObject (no longer a dict subclass). Iteration 3 received a fix that called `s_raw.to_dict_recursive() if hasattr(s_raw,'to_dict_recursive') else dict(s_raw)`. Reproduction in this env (stripe 15.0.1): `hasattr(StripeObject(), 'to_dict_recursive')` → False (method was removed in stripe>=8.x), so code fell through to `dict(s_raw)`. `dict()` on a non-mapping iterable expects a sequence of (k,v) pairs; StripeObject's __iter__ yields field names but `dict()` then triggers __getitem__ with integer index 0 → KeyError: 0 → HTTP 500. Same crash at line 274 webhook handler (`evt_dict = dict(event)`). Mitigation applied: added `elif hasattr(x,'to_dict'): x = x.to_dict()` branch (verified in stripe 15.0.1: `to_dict()` returns a fully-recursive plain dict tree). Result: all 30 tests now pass."
+}

@@ -218,7 +218,8 @@ async def update_subscription_plan(subscription_id: str, new_plan: str) -> Dict[
 async def list_invoices_for_customer(customer_id: str, limit: int = 20) -> Dict[str, Any]:
     try:
         invs = await _to_thread(stripe.Invoice.list, customer=customer_id, limit=limit)
-        return {"ok": True, "invoices": invs.data}
+        rows = [i.to_dict_recursive() if hasattr(i, "to_dict_recursive") else dict(i) for i in (invs.data or [])]
+        return {"ok": True, "invoices": rows}
     except Exception as ex:
         return {"ok": False, "error": str(ex)}
 
@@ -234,15 +235,11 @@ async def create_billing_portal_session(customer_id: str, return_url: str) -> Di
 
 
 def verify_webhook(payload: bytes, signature: str) -> Optional[Any]:
-    """Returns a Stripe Event on success, None on verification failure."""
+    """Returns a Stripe Event on success, None on verification failure.
+    Requires STRIPE_WEBHOOK_SECRET — unsigned events are rejected."""
     if not STRIPE_WEBHOOK_SECRET:
-        log.warning("STRIPE_WEBHOOK_SECRET not set — webhook signature NOT verified.")
-        try:
-            import json
-            return stripe.Event.construct_from(json.loads(payload.decode()), stripe.api_key)
-        except Exception as ex:
-            log.error(f"webhook parse failed: {ex}")
-            return None
+        log.error("STRIPE_WEBHOOK_SECRET not set — refusing to process webhook.")
+        return None
     try:
         return stripe.Webhook.construct_event(payload, signature, STRIPE_WEBHOOK_SECRET)
     except stripe.error.SignatureVerificationError as ex:

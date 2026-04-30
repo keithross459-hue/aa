@@ -104,14 +104,22 @@ async def checkout_status(session_id: str, user=Depends(current_user)):
             "plan": tx.get("plan"),
             "note": "provider_lookup_failed",
         }
-    s = res["session"]
+    s_raw = res["session"]
+    if isinstance(s_raw, dict):
+        s = s_raw
+    elif hasattr(s_raw, "to_dict_recursive"):
+        s = s_raw.to_dict_recursive()
+    elif hasattr(s_raw, "to_dict"):
+        s = s_raw.to_dict()
+    else:
+        s = dict(s_raw)
     st_status = s.get("status")
     st_payment_status = s.get("payment_status")
 
     sub = s.get("subscription")
-    sub_id = sub if isinstance(sub, str) else (sub.id if sub else None)
+    sub_id = sub if isinstance(sub, str) else (sub.get("id") if isinstance(sub, dict) else None)
     customer = s.get("customer")
-    customer_id = customer if isinstance(customer, str) else (customer.id if customer else None)
+    customer_id = customer if isinstance(customer, str) else (customer.get("id") if isinstance(customer, dict) else None)
 
     # Subscription checkouts finalize as "complete" + payment_status "paid"
     if st_payment_status == "paid" and tx.get("payment_status") != "paid":
@@ -264,10 +272,21 @@ async def stripe_webhook(request: Request):
     if event is None:
         raise HTTPException(400, "Invalid signature")
 
-    etype = event["type"] if isinstance(event, dict) else event.type
-    obj = (event["data"]["object"] if isinstance(event, dict) else event.data.object)
+    # Normalize event + object to plain dict
+    if isinstance(event, dict):
+        evt_dict = event
+    elif hasattr(event, "to_dict_recursive"):
+        evt_dict = event.to_dict_recursive()
+    elif hasattr(event, "to_dict"):
+        evt_dict = event.to_dict()
+    else:
+        evt_dict = dict(event)
+
+    etype = evt_dict.get("type")
+    event_id = evt_dict.get("id")
+    obj = (evt_dict.get("data") or {}).get("object") or {}
+
     # Persist raw event (idempotent by event id)
-    event_id = event["id"] if isinstance(event, dict) else event.id
     existing = await db.stripe_events.find_one({"id": event_id}, {"_id": 0})
     if existing:
         return {"received": True, "duplicate": True}
@@ -277,15 +296,15 @@ async def stripe_webhook(request: Request):
         "received_at": datetime.now(timezone.utc).isoformat(),
     })
 
-    meta = (obj.get("metadata") or {}) if isinstance(obj, dict) else (obj.metadata or {})
-    user_id = meta.get("filthy_user_id") if hasattr(meta, "get") else meta.get("filthy_user_id") if meta else None
-    plan = meta.get("filthy_plan") if meta else None
+    meta = obj.get("metadata") or {}
+    user_id = meta.get("filthy_user_id")
+    plan = meta.get("filthy_plan")
 
     try:
         if etype == "checkout.session.completed":
-            session_id = obj.get("id") if isinstance(obj, dict) else obj.id
-            sub_id = obj.get("subscription") if isinstance(obj, dict) else obj.subscription
-            customer_id = obj.get("customer") if isinstance(obj, dict) else obj.customer
+            session_id = obj.get("id")
+            sub_id = obj.get("subscription")
+            customer_id = obj.get("customer")
             if user_id and plan:
                 await db.users.update_one(
                     {"id": user_id},
@@ -327,8 +346,7 @@ async def stripe_webhook(request: Request):
                         pass
 
         elif etype == "invoice.paid":
-            sub_id = obj.get("subscription") if isinstance(obj, dict) else obj.subscription
-            customer_id = obj.get("customer") if isinstance(obj, dict) else obj.customer
+            sub_id = obj.get("subscription")
             if sub_id:
                 await db.users.update_one(
                     {"subscription_id": sub_id},
@@ -336,7 +354,7 @@ async def stripe_webhook(request: Request):
                 )
 
         elif etype == "invoice.payment_failed":
-            sub_id = obj.get("subscription") if isinstance(obj, dict) else obj.subscription
+            sub_id = obj.get("subscription")
             if sub_id:
                 user = await db.users.find_one({"subscription_id": sub_id}, {"_id": 0})
                 if user:
@@ -347,7 +365,7 @@ async def stripe_webhook(request: Request):
                         pass
 
         elif etype == "customer.subscription.deleted":
-            sub_id = obj.get("id") if isinstance(obj, dict) else obj.id
+            sub_id = obj.get("id")
             user = await db.users.find_one({"subscription_id": sub_id}, {"_id": 0})
             if user:
                 await db.users.update_one(
@@ -364,17 +382,16 @@ async def stripe_webhook(request: Request):
                     pass
 
         elif etype == "customer.subscription.updated":
-            sub_id = obj.get("id") if isinstance(obj, dict) else obj.id
-            status = obj.get("status") if isinstance(obj, dict) else obj.status
-            cancel_at_period_end = obj.get("cancel_at_period_end") if isinstance(obj, dict) else obj.cancel_at_period_end
-            new_meta = obj.get("metadata") if isinstance(obj, dict) else obj.metadata
-            new_plan = (new_meta or {}).get("filthy_plan") if new_meta else None
-            update_doc = {"subscription_status": "cancel_scheduled" if cancel_at_period_end else status}
+            sub_id = obj.get("id")
+            status_val = obj.get("status")
+            cancel_at_period_end = obj.get("cancel_at_period_end")
+            new_plan = (obj.get("metadata") or {}).get("filthy_plan")
+            update_doc = {"subscription_status": "cancel_scheduled" if cancel_at_period_end else status_val}
             if new_plan and new_plan in PLAN_LIMITS:
                 update_doc["plan"] = new_plan
             await db.users.update_one({"subscription_id": sub_id}, {"$set": update_doc})
 
     except Exception as ex:
-        log.error(f"webhook handler for {etype} failed: {ex}")
+        log.error(f"webhook handler for {etype} failed: {ex}", exc_info=True)
 
     return {"received": True}
