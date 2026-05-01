@@ -238,8 +238,8 @@ async def billing_portal(user=Depends(current_user)):
     cid = user.get("stripe_customer_id")
     if not cid:
         raise HTTPException(400, "No Stripe customer")
-    backend = os.environ.get("BACKEND_URL", "https://fiilthy.ai")
-    res = await stripe_service.create_billing_portal_session(cid, f"{backend}/app")
+    frontend = os.environ.get("FRONTEND_URL") or os.environ.get("BACKEND_URL", "https://fiilthy.ai")
+    res = await stripe_service.create_billing_portal_session(cid, f"{frontend.rstrip('/')}/app/billing")
     if not res.get("ok"):
         raise HTTPException(500, res.get("error"))
     return {"url": res["url"]}

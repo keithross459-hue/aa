@@ -16,7 +16,7 @@ log = logging.getLogger("filthy.email")
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 FROM_EMAIL = os.environ.get("SENDGRID_FROM_EMAIL", "no-reply@filthy.ai")
 FROM_NAME = os.environ.get("SENDGRID_FROM_NAME", "FiiLTHY.AI")
-BRAND_URL = os.environ.get("BACKEND_URL", "https://fiilthy.ai").replace("/api", "")
+BRAND_URL = (os.environ.get("FRONTEND_URL") or os.environ.get("BACKEND_URL", "https://fiilthy.ai")).replace("/api", "").rstrip("/")
 
 # ---------- Branded template wrapper ----------
 _BRAND = {
