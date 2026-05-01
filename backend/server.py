@@ -313,6 +313,64 @@ def _safe_json_parse(text: str):
     raise HTTPException(500, "AI returned malformed output. Please retry.")
 
 
+def _price_from_hint(price_hint: Optional[str]) -> float:
+    if not price_hint:
+        return 27.0
+    import re
+    nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", price_hint)]
+    if not nums:
+        return 27.0
+    return round(sum(nums) / len(nums), 2)
+
+
+def _fallback_product_data(req: GenerateProductReq) -> Dict[str, Any]:
+    niche = " ".join(req.niche.strip().split())
+    product_type = (req.product_type or "ebook").strip().lower()
+    audience = (req.audience or f"beginners who want better results with {niche}").strip()
+    price = _price_from_hint(req.price_hint)
+    title_niche = niche.title()
+
+    return {
+        "title": f"{title_niche} Launch Kit",
+        "tagline": f"A practical {product_type} for turning {niche} into a clear, sellable result.",
+        "description": (
+            f"This {product_type} gives {audience} a simple path to improve {niche} without guesswork. "
+            "It packages the core decisions, checklists, and action steps into one focused product buyers can use immediately."
+        ),
+        "target_audience": audience,
+        "price": price,
+        "bullet_features": [
+            "Fast-start checklist for the first useful result",
+            "Step-by-step setup flow with clear decisions",
+            "Common mistakes to avoid before launch",
+            "Simple quality-control scorecard",
+            "Promotion angles buyers can act on immediately",
+            "Next-step plan for improving after first feedback",
+        ],
+        "outline": [
+            "The Outcome This Product Delivers",
+            "Who This Is For",
+            "The Fast-Start Setup",
+            "Quality Control Checklist",
+            "Build The First Version",
+            "Launch With A Simple Offer",
+            "Promote For The First Click",
+            "Read The Signals",
+            "Improve And Relaunch",
+        ],
+        "sales_copy": (
+            f"Stop guessing your way through {niche}. The {title_niche} Launch Kit gives you a clean, direct path "
+            "from idea to action with checklists, launch steps, and simple quality checks you can use today. "
+            f"It is built for {audience}, so every section focuses on clarity, speed, and practical execution. "
+            "Use it to make the first version, promote it, read the response, and improve without getting stuck."
+        ),
+        "cover_concept": (
+            f"Bold black-and-yellow digital cover with the title '{title_niche} Launch Kit', sharp grid lines, "
+            "a launch checklist motif, and a clean premium business-builder feel."
+        ),
+    }
+
+
 # ---------- Routes: auth ----------
 @api.get("/")
 async def root():
@@ -642,8 +700,14 @@ Return JSON with EXACT keys:
   "sales_copy": "string (~120 words punchy direct-response copy)",
   "cover_concept": "string (one-line visual brief for the cover)"
 }}"""
-    raw = await llm_json(sys_msg, prompt, session_id=f"product-{user['id']}-{uuid.uuid4().hex[:8]}")
-    data = _safe_json_parse(raw)
+    try:
+        raw = await llm_json(sys_msg, prompt, session_id=f"product-{user['id']}-{uuid.uuid4().hex[:8]}")
+        data = _safe_json_parse(raw)
+    except HTTPException as ex:
+        if ex.status_code != 503:
+            raise
+        log.warning("LLM unavailable; using fallback product builder for user=%s", user["id"])
+        data = _fallback_product_data(req)
 
     pid = str(uuid.uuid4())
     product = {
