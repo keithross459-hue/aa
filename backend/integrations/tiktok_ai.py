@@ -3,7 +3,7 @@ import os
 import uuid
 from typing import List, Dict, Any
 
-from services.llm_client import generate_text
+from services.llm_client import LlmProviderUnavailable, generate_text_with_fallback
 from services.llm_config import llm_api_key
 
 SYSTEM_MSG = (
@@ -82,12 +82,15 @@ Return JSON with EXACT keys:
   ]
 }}"""
 
-    resp = await generate_text(
-        system=SYSTEM_MSG,
-        prompt=prompt,
-        session_id=f"tiktok-{uuid.uuid4().hex[:8]}",
-        api_key=api_key,
-    )
+    try:
+        resp = await generate_text_with_fallback(
+            system=SYSTEM_MSG,
+            prompt=prompt,
+            session_id=f"tiktok-{uuid.uuid4().hex[:8]}",
+            api_key_override=api_key,
+        )
+    except LlmProviderUnavailable as ex:
+        raise RuntimeError("AI providers are temporarily unavailable") from ex
     data = _safe_json_parse(resp)
 
     posts_raw = data.get("posts", []) if isinstance(data, dict) else []

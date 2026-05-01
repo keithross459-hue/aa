@@ -11,6 +11,8 @@ from typing import Optional
 
 import requests
 
+from services.llm_config import llm_api_keys
+
 try:  # Optional private dependency used by the original app environment.
     from emergentintegrations.llm.chat import LlmChat, UserMessage
 except Exception:  # pragma: no cover - exercised only when package is absent.
@@ -24,6 +26,10 @@ def _provider_from_key(api_key: str) -> str:
     if api_key.startswith("AIza"):
         return "gemini"
     return "openai"
+
+
+class LlmProviderUnavailable(RuntimeError):
+    pass
 
 
 def _direct_generate(system: str, prompt: str, api_key: str) -> str:
@@ -46,7 +52,10 @@ def _direct_generate(system: str, prompt: str, api_key: str) -> str:
             },
             timeout=timeout,
         )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError as ex:
+            raise LlmProviderUnavailable(f"anthropic_unavailable:{resp.status_code}") from ex
         data = resp.json()
         return "\n".join(part.get("text", "") for part in data.get("content", []) if part.get("type") == "text")
 
@@ -61,7 +70,10 @@ def _direct_generate(system: str, prompt: str, api_key: str) -> str:
             },
             timeout=timeout,
         )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError as ex:
+            raise LlmProviderUnavailable(f"gemini_unavailable:{resp.status_code}") from ex
         data = resp.json()
         parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
         return "\n".join(part.get("text", "") for part in parts)
@@ -78,7 +90,10 @@ def _direct_generate(system: str, prompt: str, api_key: str) -> str:
         },
         timeout=timeout,
     )
-    resp.raise_for_status()
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as ex:
+        raise LlmProviderUnavailable(f"openai_unavailable:{resp.status_code}") from ex
     return resp.json()["choices"][0]["message"]["content"]
 
 
@@ -99,3 +114,28 @@ async def generate_text(
         return await chat.send_message(UserMessage(text=prompt))
 
     return await asyncio.to_thread(_direct_generate, system, prompt, api_key)
+
+
+async def generate_text_with_fallback(
+    system: str,
+    prompt: str,
+    session_id: str,
+    api_key_override: Optional[str] = None,
+) -> str:
+    keys = [api_key_override] if api_key_override else []
+    keys.extend(llm_api_keys())
+    deduped = []
+    for key in keys:
+        if key and key not in deduped:
+            deduped.append(key)
+    if not deduped:
+        raise LlmProviderUnavailable("no_llm_keys_configured")
+
+    errors = []
+    for index, key in enumerate(deduped):
+        try:
+            return await generate_text(system, prompt, f"{session_id}-{index}", key)
+        except Exception as ex:
+            errors.append(str(ex))
+            continue
+    raise LlmProviderUnavailable("all_llm_providers_unavailable")

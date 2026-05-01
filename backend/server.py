@@ -53,7 +53,7 @@ from routers.machine import router as machine_router
 from routers.referrals import router as referrals_router
 from services import email as email_service
 from services import referrals as referral_service
-from services.llm_client import generate_text
+from services.llm_client import LlmProviderUnavailable, generate_text_with_fallback
 from services.llm_config import llm_api_key
 from services.security import RateLimitMiddleware, RequestLoggingMiddleware, SecurityHeadersMiddleware, ensure_indexes
 from services import stripe_service
@@ -262,12 +262,10 @@ async def llm_json(system: str, prompt: str, session_id: str, api_key_override: 
     api_key = api_key_override or EMERGENT_LLM_KEY
     if not api_key:
         raise HTTPException(503, "AI generation is not configured")
-    return await generate_text(
-        system=system,
-        prompt=prompt,
-        session_id=session_id,
-        api_key=api_key,
-    )
+    try:
+        return await generate_text_with_fallback(system, prompt, session_id, api_key_override=api_key)
+    except LlmProviderUnavailable:
+        raise HTTPException(503, "AI providers are temporarily unavailable")
 
 
 def _safe_json_parse(text: str):

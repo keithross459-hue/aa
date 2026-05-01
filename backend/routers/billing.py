@@ -347,6 +347,7 @@ async def stripe_webhook(request: Request):
     etype = evt_dict.get("type")
     event_id = evt_dict.get("id")
     obj = (evt_dict.get("data") or {}).get("object") or {}
+    log.info("stripe webhook received type=%s id=%s", etype, event_id)
 
     # Persist raw event (idempotent by event id)
     existing = await db.stripe_events.find_one({"id": event_id}, {"_id": 0})
