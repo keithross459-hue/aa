@@ -472,6 +472,13 @@ async def reset_password(req: ResetPasswordReq):
 
 @api.get("/auth/me", response_model=UserOut)
 async def me(user=Depends(current_user)):
+    # Keep OWNER_EMAIL as admin even if an older record exists.
+    if is_owner_email(user.get("email", "")) and user.get("role") != "admin":
+        try:
+            await db.users.update_one({"id": user["id"]}, {"$set": {"role": "admin"}})
+            user["role"] = "admin"
+        except Exception:
+            pass
     return _user_out(user)
 
 
