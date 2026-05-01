@@ -114,10 +114,10 @@ export default function AppLayout() {
           </div>
           <Link
             to="/pricing"
-            className="block mt-3 text-center bg-[#FF3333] text-white font-mono text-xs uppercase tracking-widest py-2 btn-hard btn-hard-red"
+            className="block mt-3 text-center bg-[#FFD600] text-black font-mono text-xs uppercase tracking-widest py-2 btn-hard"
             data-testid="upgrade-btn"
           >
-            Upgrade
+            Get more launches
           </Link>
         </div>
 

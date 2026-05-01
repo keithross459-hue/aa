@@ -3,28 +3,28 @@ import { ArrowUpRight, Gauge, Rocket, Zap } from "lucide-react";
 
 const COPY = {
   traction: {
-    eyebrow: "Scale moment",
-    title: "This is working - scale it",
-    body: "You have proof now. Upgrade for faster loops, more launches, and more variations while momentum is warm.",
-    primary: "Scale this",
+    eyebrow: "Momentum unlocked",
+    title: "Keep going with Starter",
+    body: "You have a signal now. Starter gives you more launch loops and remixes without jumping into a big plan.",
+    primary: "Start Starter - $29",
   },
   winner: {
     eyebrow: "Winner detected",
-    title: "Turn this signal into more products",
-    body: "Winning products should not sit still. Unlock more remixing, more content, and faster launch cycles.",
-    primary: "Unlock scale",
+    title: "Turn this signal into another launch",
+    body: "Starter unlocks more launch loops so your best signal can become the next product while momentum is warm.",
+    primary: "Start Starter - $29",
   },
   batch: {
     eyebrow: "Batch launch",
-    title: "Launch 5 at once when you are ready to scale",
-    body: "Batch product launches are for paid plans so your best signals can become a portfolio faster.",
-    primary: "Unlock batch",
+    title: "More launches start with Starter",
+    body: "Use Starter first for more product attempts, then move to Pro when you are ready for batch launches.",
+    primary: "Start Starter - $29",
   },
   limit: {
     eyebrow: "Momentum limit",
-    title: "This is working - scale it",
-    body: "You used the free launch fuel. Upgrade when you want more speed, more remixes, and more launch attempts.",
-    primary: "Keep momentum",
+    title: "Keep building for $29",
+    body: "You used the free launch fuel. Starter is the smallest paid step for more launches, more remixes, and more chances to get a result.",
+    primary: "Start Starter - $29",
   },
 };
 
