@@ -2,7 +2,14 @@
 
 ## Status
 
-Render CLI/API credentials are not present in this workspace, so the backend service cannot be created automatically from here. The repository is configured for Render with `render.yaml`, and local ignored env files have been prepared and validated.
+Render backend was created through the Render API as a new service, with no existing service overwritten.
+
+- Service: `fiilthy-ai-production-backend`
+- Service ID: `srv-d7puh7e8bjmc73bm5fo0`
+- Live URL: `https://fiilthy-ai-production-backend.onrender.com`
+- Live commit: `1a9ce9b`
+- Current plan: `free`, because Render rejected `starter` creation until billing is added.
+- Custom domain: `api.fiilthy.ai` attached, pending DNS verification.
 
 ## Blueprint
 
@@ -10,6 +17,7 @@ Render service:
 
 - Name: `fiilthy-ai-production-backend`
 - Runtime: Python
+- Python: `3.11.11`
 - Build command: `pip install -r backend/requirements.txt`
 - Start command: `cd backend && uvicorn server:app --host 0.0.0.0 --port $PORT`
 - Health check: `/api/health`
@@ -17,7 +25,7 @@ Render service:
 
 ## Required Secret Values
 
-Render will prompt for `sync: false` values:
+The API-created service was populated from the local ignored `backend/.env`. For Blueprint recreates, Render will prompt for `sync: false` values:
 
 - `MONGO_URL`
 - `OWNER_EMAIL`
@@ -41,19 +49,17 @@ If `EMERGENT_LLM_KEY` is not available, the backend falls back to `ANTHROPIC_API
 
 ## Manual Render Steps
 
-1. In Render, create a new Blueprint from this repo using `render.yaml`.
-2. Enter the required secret values listed above.
-3. Deploy `fiilthy-ai-production-backend`.
-4. Copy the generated `*.onrender.com` URL.
-5. Verify:
+1. Add a payment method in Render billing.
+2. Upgrade `fiilthy-ai-production-backend` from `free` to `starter` or higher.
+3. Confirm latest deploy remains live.
+4. Verify:
 
 ```bash
-python scripts/verify_live.py --backend https://YOUR-SERVICE.onrender.com --frontend https://fiilthy-ai-production-frontend.vercel.app
+python scripts/verify_live.py --backend https://fiilthy-ai-production-backend.onrender.com --frontend https://fiilthy-ai-production-frontend.vercel.app
 ```
 
-6. Add custom domain `api.fiilthy.ai` to the Render web service.
-7. At your DNS provider, add the CNAME value Render gives you for `api.fiilthy.ai`.
-8. After SSL is active, run:
+5. At your DNS provider, add `CNAME api fiilthy-ai-production-backend.onrender.com`.
+6. After SSL is active, run:
 
 ```bash
 python scripts/verify_live.py --backend https://api.fiilthy.ai --frontend https://fiilthy.ai

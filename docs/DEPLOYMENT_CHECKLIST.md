@@ -2,14 +2,17 @@
 
 ## Render Backend
 
-- Create a new Render Blueprint from the repository root.
-- Use `render.yaml`.
-- Enter all `sync: false` secret values.
+- Created service: `fiilthy-ai-production-backend`.
+- Service ID: `srv-d7puh7e8bjmc73bm5fo0`.
+- Live URL: `https://fiilthy-ai-production-backend.onrender.com`.
+- Current plan is `free`; add Render billing and upgrade to `starter` or higher for production traffic.
+- `render.yaml` remains the Git-ready Blueprint source of truth.
 - Confirm service name: `fiilthy-ai-production-backend`.
 - Confirm health check path: `/api/health`.
 - Confirm start command: `cd backend && uvicorn server:app --host 0.0.0.0 --port $PORT`.
-- Open `/api/health`, `/api/ready`, `/api/status`.
-- Add custom domain `api.fiilthy.ai`.
+- Open `/api/health`, `/api/ready`, `/api/status`: verified on Render default URL.
+- Add custom domain `api.fiilthy.ai`: attached, pending DNS verification.
+- Add DNS: `CNAME api fiilthy-ai-production-backend.onrender.com`.
 - Configure uptime checks against `/api/health`.
 - Schedule `python backend/scripts/backup_mongo.py` or equivalent managed Mongo backup.
 

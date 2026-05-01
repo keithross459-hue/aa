@@ -30,20 +30,41 @@ Date: 2026-04-30
 9. Ran requested live verifier:
    - Command: `python scripts/verify_live.py --backend https://api.fiilthy.ai --frontend https://fiilthy.ai`
    - Result: failed because `api.fiilthy.ai` does not resolve.
+10. Created a fresh Render backend service:
+   - Service: `fiilthy-ai-production-backend`
+   - Service ID: `srv-d7puh7e8bjmc73bm5fo0`
+   - URL: `https://fiilthy-ai-production-backend.onrender.com`
+   - Existing Render services in workspace before creation: none.
+11. Attempted paid Render `starter` service creation:
+   - Result: blocked by missing Render billing/payment method.
+   - Fallback: created temporary `free` service so live verification could proceed.
+12. Fixed Render deployment issues in-place:
+   - Pinned Python to `3.11.11`.
+   - Removed unavailable private LLM package from production install path.
+   - Added direct Anthropic/OpenAI/Gemini fallback adapter while preserving original integration when installed.
+   - Added missing `httpx` runtime dependency.
+13. Verified Render backend:
+   - Deploy commit: `1a9ce9b`
+   - `/api/health`: 200
+   - `/api/ready`: 200 with Mongo and Stripe configured
+   - `/api/status`: 200
+   - `scripts/verify_live.py --backend https://fiilthy-ai-production-backend.onrender.com --frontend https://fiilthy-ai-production-frontend.vercel.app`: passed public checks
+14. Attached Render custom domain:
+   - `api.fiilthy.ai`
+   - Status: unverified until DNS CNAME is added.
 
 ## Blocked Items
 
-- Backend target has been moved from Railway to Render.
-- Render backend cannot be created from this workspace because no Render CLI/API credentials are present.
-- Backend env vars are not available in the workspace.
+- Render backend is live on Render default URL.
+- Render production paid plan is blocked until billing is added to the Render workspace.
 - DNS records for `fiilthy.ai`, `www.fiilthy.ai`, and `api.fiilthy.ai` are not configured at the registrar.
-- Stripe, SendGrid, and PostHog live credentials are not present, so live provider verification cannot be completed.
+- PostHog live key is not present, so analytics reports `not_configured`.
 
 ## Current Live Frontend
 
 - `https://fiilthy-ai-production-frontend.vercel.app`
 
-This frontend is live, but app auth/API functionality remains pending until the backend is deployed and `api.fiilthy.ai` resolves.
+This frontend is live. It is configured for `https://api.fiilthy.ai`, so branded app API calls require the pending DNS record. The Render default backend URL is already live and verified.
 
 ## Render Migration Actions
 

@@ -17,7 +17,8 @@ For Vercel frontend:
 
 For Render backend:
 
-- `api.fiilthy.ai`: CNAME to the Render-provided custom-domain target after the Render web service is created.
+- `api.fiilthy.ai`: CNAME to `fiilthy-ai-production-backend.onrender.com`.
+- Current Render custom-domain status: attached but `unverified`.
 
 ## Email DNS
 
