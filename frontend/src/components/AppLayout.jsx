@@ -30,8 +30,8 @@ export default function AppLayout() {
         </div>
         <nav className="px-2 pb-2 flex gap-1 overflow-x-auto">
           <NavLink to="/app" end className={link}>Dashboard</NavLink>
-          <NavLink to="/app/products" className={link}>Products</NavLink>
-          <NavLink to="/app/machine" className={link}>Machine</NavLink>
+          <NavLink to="/app/products" className={link}>Builder</NavLink>
+          <NavLink to="/app/machine" className={link}>Auto Mode</NavLink>
           <NavLink to="/app/billing" className={link}>Billing</NavLink>
           <NavLink to="/app/referrals" className={link}>Referrals</NavLink>
           <NavLink to="/app/account" className={link}>Account</NavLink>
@@ -53,7 +53,7 @@ export default function AppLayout() {
             <LayoutDashboard className="w-4 h-4" /> Dashboard
           </NavLink>
           <NavLink to="/app/products" className={link} data-testid="nav-products">
-            <Package className="w-4 h-4" /> Products
+            <Package className="w-4 h-4" /> Builder
           </NavLink>
           <NavLink to="/app/campaigns" className={link} data-testid="nav-campaigns">
             <Megaphone className="w-4 h-4" /> Ad Campaigns
@@ -62,7 +62,7 @@ export default function AppLayout() {
             <Rocket className="w-4 h-4" /> Store Launches
           </NavLink>
           <NavLink to="/app/machine" className={link} data-testid="nav-machine">
-            <WandSparkles className="w-4 h-4" /> Machine
+            <WandSparkles className="w-4 h-4" /> Auto Mode
           </NavLink>
           <NavLink to="/app/billing" className={link} data-testid="nav-billing">
             <CreditCard className="w-4 h-4" /> Billing

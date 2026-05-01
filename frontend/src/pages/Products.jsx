@@ -1,55 +1,169 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../api";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth";
-import { Loader2, Sparkles, Trash2, ArrowRight, Download } from "lucide-react";
+import ScaleUpgradePrompt from "../components/ScaleUpgradePrompt";
+import { startStepTimer, trackOnboarding } from "../lib/onboardingTelemetry";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Download,
+  Flame,
+  Loader2,
+  PackageCheck,
+  Sparkles,
+  Target,
+  Trash2,
+  WandSparkles,
+} from "lucide-react";
 
 const TYPES = [
   { id: "ebook", label: "Ebook" },
-  { id: "course", label: "Course" },
-  { id: "notion_template", label: "Notion Template" },
-  { id: "prompt_pack", label: "Prompt Pack" },
-  { id: "template", label: "Template Bundle" },
+  { id: "course", label: "Mini course" },
+  { id: "notion_template", label: "Notion template" },
+  { id: "prompt_pack", label: "Prompt pack" },
+  { id: "template", label: "Template bundle" },
 ];
 
+const STYLES = ["Beginner-friendly", "Aggressive marketing", "Luxury", "Minimal", "Operator-focused"];
+const LOOP = ["Build", "Launch", "Promote", "Track", "Improve"];
+
+function winningExamples(niche, productType, style) {
+  const topic = niche?.trim() || "AI side hustles";
+  const typeLabel = TYPES.find((t) => t.id === productType)?.label || "Digital product";
+  return [
+    {
+      title: `${topic} Starter System`,
+      promise: `A practical ${typeLabel.toLowerCase()} for buyers who want a first win this week.`,
+      price: "$19-$29",
+      reason: "Low friction offer, clear outcome, easy to promote with short-form hooks.",
+    },
+    {
+      title: `${topic} 30-Day Blueprint`,
+      promise: `A guided plan with daily actions, checklists, and simple progress milestones.`,
+      price: "$27-$49",
+      reason: "Plans sell because the buyer can imagine finishing them.",
+    },
+    {
+      title: `${topic} Swipe File`,
+      promise: `Ready-to-use examples, prompts, scripts, and templates in a ${style.toLowerCase()} voice.`,
+      price: "$17-$37",
+      reason: "Fast perceived value: the customer can use it immediately.",
+    },
+    {
+      title: `${topic} Premium Kit`,
+      promise: "A higher-value bundle with worksheets, launch copy, and a monetization checklist.",
+      price: "$49-$97",
+      reason: "Bundles justify a stronger price and create more launch angles.",
+    },
+  ];
+}
+
 export default function Products() {
-  const { refresh } = useAuth();
+  const { refresh, user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [items, setItems] = useState([]);
   const [niche, setNiche] = useState("");
   const [audience, setAudience] = useState("");
   const [productType, setProductType] = useState("ebook");
-  const [priceHint, setPriceHint] = useState("");
+  const [style, setStyle] = useState(STYLES[0]);
+  const [mode, setMode] = useState("guided");
+  const [direction, setDirection] = useState(0);
+  const [priceHint, setPriceHint] = useState("$27");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [latest, setLatest] = useState(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const remixId = searchParams.get("remix");
+  const batch = searchParams.get("batch");
+  const isFree = (user?.plan || "free") === "free";
+  const firstRun = items.length === 0 && !remixId;
+
+  const examples = useMemo(() => winningExamples(niche, productType, style), [niche, productType, style]);
+  const chosen = examples[direction] || examples[0];
 
   const load = async () => {
     const r = await api.get("/products");
     setItems(r.data);
   };
-  useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  useEffect(() => {
+    return startStepTimer(firstRun ? "choose_niche" : "builder");
+  }, [firstRun]);
+
+  useEffect(() => {
+    if (!remixId) return;
+    (async () => {
+      try {
+        const r = await api.get(`/products/${remixId}`);
+        const product = r.data;
+        setNiche(product.target_audience || product.title || "");
+        setAudience(product.target_audience || "");
+        setProductType(product.product_type || "ebook");
+        setPriceHint(`$${product.price || 27}`);
+        setStyle("Operator-focused");
+        setNotes([
+          `Remix structure from: ${product.title}`,
+          `Keep this outline: ${(product.outline || []).join(" | ")}`,
+          batch === "5" ? "Create this as the first of five similar launch angles." : "Make it feel adjacent, not identical.",
+        ].join("\n"));
+      } catch {
+        // Remix is a speed path; if the source is unavailable the normal builder still works.
+      }
+    })();
+  }, [remixId, batch]);
 
   const generate = async (e) => {
     e.preventDefault();
     setErr("");
-    if (!niche.trim()) { setErr("Niche required."); return; }
+    if (!niche.trim()) {
+      setErr("Pick a niche before building.");
+      trackOnboarding("onboarding_dropoff_risk", { step: "choose_niche", reason: "empty_niche_submit" });
+      return;
+    }
     setBusy(true);
+    trackOnboarding("first_action_started", { step: "build_product", fma: "product_created" });
     try {
-      await api.post("/products/generate", {
-        niche, audience, product_type: productType, price_hint: priceHint, extra_notes: notes,
+      const extra = [
+        `Direction: ${chosen.title}`,
+        `Promise: ${chosen.promise}`,
+        `Style: ${style}`,
+        `Mode: ${mode}`,
+        notes && `User notes: ${notes}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const r = await api.post("/products/generate", {
+        niche,
+        audience,
+        product_type: productType,
+        price_hint: priceHint,
+        extra_notes: extra,
       });
-      setNiche(""); setAudience(""); setPriceHint(""); setNotes("");
+      setLatest(r.data);
+      trackOnboarding("first_meaningful_action_completed", { fma: "product_created", product_id: r.data.id });
+      setNiche("");
+      setAudience("");
+      setNotes("");
       await Promise.all([load(), refresh()]);
     } catch (ex) {
       const detail = ex?.response?.data?.detail;
       if (detail?.code === "LIMIT_REACHED") setErr(detail.message);
       else setErr(typeof detail === "string" ? detail : "Generation failed.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const del = async (id) => {
     if (!window.confirm("Delete this product and its campaigns/listings?")) return;
     await api.delete(`/products/${id}`);
+    if (latest?.id === id) setLatest(null);
     load();
   };
 
@@ -60,7 +174,7 @@ export default function Products() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "filthy-library.zip";
+    a.download = "fiilthy-library.zip";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -68,106 +182,234 @@ export default function Products() {
   };
 
   return (
-    <div className="p-8 lg:p-12" data-testid="products-page">
-      <div className="flex items-end justify-between flex-wrap gap-4 mb-10">
+    <div className="p-6 lg:p-10" data-testid="products-page">
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-[#FFD600] mb-2">▮ Product forge</div>
-          <h1 className="font-heading text-5xl lg:text-6xl uppercase">Generate digital products</h1>
+          <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#FFD600]">
+            First product setup
+          </div>
+          <h1 className="font-heading text-5xl uppercase lg:text-6xl">Start here</h1>
+          <p className="mt-2 max-w-3xl text-zinc-400">
+            Choose a niche. Build the first product. Launch now. Everything else can wait.
+          </p>
         </div>
-        {items.length > 0 && (
+        {items.length > 0 && !firstRun && (
           <button
             onClick={downloadAll}
-            className="border border-zinc-700 text-white font-mono text-xs uppercase tracking-widest px-5 py-3 hover:bg-white hover:text-black transition-colors flex items-center gap-2"
+            className="flex items-center gap-2 border border-zinc-700 px-5 py-3 font-mono text-xs uppercase tracking-widest text-white transition-colors hover:bg-white hover:text-black"
             data-testid="download-all-btn"
           >
-            <Download className="w-4 h-4" /> Download all (.zip)
+            <Download className="h-4 w-4" /> Download library
           </button>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-px bg-zinc-800 border border-zinc-800 mb-10">
-        {/* Form */}
-        <form onSubmit={generate} className="bg-zinc-950 p-6 lg:col-span-5">
-          <div className="font-mono text-xs uppercase tracking-widest text-zinc-400 mb-6">▮ New product brief</div>
+      <div className="mb-8 grid gap-px border border-zinc-800 bg-zinc-800 lg:grid-cols-3">
+        {["Choose niche", "Build product", "Launch"].map((step, i) => (
+          <div key={step} className="bg-zinc-950 p-4">
+            <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-zinc-500">
+              {String(i + 1).padStart(2, "0")}
+            </div>
+            <div className="font-heading text-2xl uppercase">{step}</div>
+          </div>
+        ))}
+      </div>
 
-          <Field label="Niche *" value={niche} onChange={setNiche} placeholder="e.g. faceless youtube AI channels" testid="niche-input" />
-          <Field label="Target audience" value={audience} onChange={setAudience} placeholder="optional — we'll pick" testid="audience-input" />
-
-          <label className="block mb-4">
-            <span className="block font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-400 mb-2">Product type</span>
-            <select
-              value={productType}
-              onChange={(e) => setProductType(e.target.value)}
-              className="w-full bg-transparent border border-zinc-800 px-4 py-3 text-white font-mono text-sm focus:border-[#FFD600] focus:outline-none"
-              data-testid="type-select"
-            >
-              {TYPES.map((t) => (<option key={t.id} value={t.id} className="bg-zinc-950">{t.label}</option>))}
-            </select>
-          </label>
-
-          <Field label="Price hint" value={priceHint} onChange={setPriceHint} placeholder="$27 sweet spot" testid="price-input" />
-          <Field label="Notes" value={notes} onChange={setNotes} placeholder="optional flavor" testid="notes-input" />
-
-          {err && (
-            <div className="bg-[#FF3333]/10 border border-[#FF3333] text-[#FF3333] font-mono text-xs uppercase tracking-widest px-4 py-3 mb-4" data-testid="product-error">
-              {err}
+      <div className="grid grid-cols-1 gap-px border border-zinc-800 bg-zinc-800 xl:grid-cols-12">
+        <form onSubmit={generate} className={`bg-zinc-950 p-6 ${firstRun ? "xl:col-span-12" : "xl:col-span-5"}`}>
+          {batch === "5" && isFree && (
+            <ScaleUpgradePrompt trigger="batch" compact className="mb-5" />
+          )}
+          {remixId && (
+            <div className="mb-5 border border-[#FFD600] bg-[#FFD600]/10 p-4">
+              <div className="mb-1 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">Remix mode</div>
+              <div className="text-sm text-zinc-300">
+                Structure loaded. Adjust the angle, then launch a related product fast.
+              </div>
             </div>
           )}
+          <StepLabel n="01" label="Choose niche" />
+          <Field label="What niche do you want?" value={niche} onChange={setNiche} placeholder="Fitness plans for busy founders" testid="niche-input" />
 
-          <button type="submit" disabled={busy} className="w-full bg-[#FFD600] text-black font-mono text-sm uppercase tracking-widest py-4 btn-hard disabled:opacity-60 flex items-center justify-center gap-2" data-testid="generate-product-btn">
-            {busy ? (<><Loader2 className="w-4 h-4 animate-spin" /> Forging…</>) : (<><Sparkles className="w-4 h-4" /> Forge product</>)}
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+            className="mb-4 font-mono text-[10px] uppercase tracking-widest text-zinc-500 hover:text-[#FFD600]"
+          >
+            {advancedOpen ? "Hide optional settings" : "Optional settings"}
+          </button>
+
+          {advancedOpen && (
+            <>
+              <Field label="Who is buying?" value={audience} onChange={setAudience} placeholder="Beginners, creators, operators, parents..." testid="audience-input" />
+              <label className="mb-4 block">
+                <span className="mb-2 block font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-400">Product type</span>
+                <select value={productType} onChange={(e) => setProductType(e.target.value)} className="w-full border border-zinc-800 bg-transparent px-4 py-3 font-mono text-sm text-white focus:border-[#FFD600] focus:outline-none" data-testid="type-select">
+                  {TYPES.map((t) => (
+                    <option key={t.id} value={t.id} className="bg-zinc-950">
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="mb-4">
+                <span className="mb-2 block font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-400">Style</span>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {STYLES.map((s) => (
+                    <button type="button" key={s} onClick={() => setStyle(s)} className={`border px-3 py-2 text-left font-mono text-[11px] uppercase tracking-wider transition-colors ${style === s ? "border-[#FFD600] bg-[#FFD600] text-black" : "border-zinc-800 text-zinc-300 hover:border-zinc-600"}`}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Field label="Suggested price" value={priceHint} onChange={setPriceHint} placeholder="$27" testid="price-input" />
+              <label className="mb-4 block">
+                <span className="mb-2 block font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-400">Quick notes</span>
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Make it simple, include a checklist..." className="min-h-24 w-full border border-zinc-800 bg-transparent px-4 py-3 font-mono text-sm text-white focus:border-[#FFD600] focus:outline-none" />
+              </label>
+            </>
+          )}
+
+          {err && <div className="mb-4 border border-[#FF3333] bg-[#FF3333]/10 px-4 py-3 font-mono text-xs uppercase tracking-widest text-[#FF3333]" data-testid="product-error">{err}</div>}
+          {err && err.toLowerCase().includes("upgrade") && <ScaleUpgradePrompt trigger="limit" compact className="mb-4" />}
+
+          <button type="submit" disabled={busy} className="btn-hard flex w-full items-center justify-center gap-2 bg-[#FFD600] py-4 font-mono text-sm uppercase tracking-widest text-black disabled:opacity-60" data-testid="generate-product-btn">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {busy ? "Building..." : "Start here"}
           </button>
         </form>
 
-        {/* List */}
-        <div className="bg-zinc-950 lg:col-span-7">
-          <div className="px-6 py-4 border-b border-zinc-800 font-mono text-xs uppercase tracking-widest">▮ Your library — {items.length}</div>
-          {items.length === 0 ? (
-            <div className="p-10 text-center text-zinc-500 font-mono text-xs uppercase tracking-widest">No products yet. Forge one →</div>
-          ) : (
-            <div className="divide-y divide-zinc-800">
-              {items.map((p) => (
-                <div key={p.id} className="p-5 hover:bg-zinc-900 transition-colors" data-testid={`product-row-${p.id}`}>
-                  <div className="flex items-start justify-between gap-4">
-                    <Link to={`/app/products/${p.id}`} className="min-w-0 flex-1">
-                      <div className="font-heading text-2xl uppercase truncate">{p.title}</div>
-                      <div className="text-zinc-400 text-sm line-clamp-1">{p.tagline}</div>
-                      <div className="flex gap-4 mt-2 font-mono text-[10px] text-zinc-500 uppercase tracking-widest">
-                        <span>${p.price}</span>
-                        <span className="text-[#FFD600]">{p.campaigns_count} campaigns</span>
-                        <span className="text-[#FF3333]">{p.launched_stores.length} stores live</span>
-                      </div>
-                    </Link>
-                    <div className="flex items-center gap-2">
-                      <Link to={`/app/products/${p.id}`} className="p-2 text-zinc-400 hover:text-white" title="Open" data-testid={`open-${p.id}`}>
-                        <ArrowRight className="w-4 h-4" />
-                      </Link>
-                      <button onClick={() => del(p.id)} className="p-2 text-zinc-400 hover:text-[#FF3333]" title="Delete" data-testid={`delete-${p.id}`}>
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
+        {!firstRun && <div className="bg-zinc-950 p-6 xl:col-span-4">
+          <StepLabel n="03" label="Pick a winning direction" />
+          <div className="space-y-3">
+            {examples.map((ex, i) => (
+              <button
+                key={ex.title}
+                type="button"
+                onClick={() => setDirection(i)}
+                className={`w-full border p-4 text-left transition-colors ${
+                  direction === i ? "border-[#FFD600] bg-[#FFD600]/10" : "border-zinc-800 hover:border-zinc-600"
+                }`}
+              >
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div className="font-heading text-2xl uppercase">{ex.title}</div>
+                  {direction === i && <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[#FFD600]" />}
                 </div>
-              ))}
+                <p className="mb-3 text-sm text-zinc-300">{ex.promise}</p>
+                <div className="flex flex-wrap gap-2 font-mono text-[10px] uppercase tracking-widest">
+                  <span className="bg-zinc-900 px-2 py-1 text-[#FFD600]">{ex.price}</span>
+                  <span className="bg-zinc-900 px-2 py-1 text-zinc-400">{ex.reason}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>}
+
+        {!firstRun && <div className="bg-zinc-950 p-6 xl:col-span-3">
+          <StepLabel n="04" label="Confidence layer" />
+          <div className="space-y-4">
+            <Insight icon={<Target />} title="Why this could work" text={chosen.reason} />
+            <Insight icon={<Flame />} title="Trend signal" text={`${niche || "This niche"} is easy to test with hooks, templates, and visible before-after outcomes.`} />
+            <Insight icon={<PackageCheck />} title="Suggested price" text={`${chosen.price}. Start accessible, then raise price when clicks and sales show demand.`} />
+          </div>
+
+          {latest && (
+            <div className="mt-6 border border-[#FFD600] bg-[#FFD600]/5 p-4">
+              <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">Draft ready</div>
+              <div className="font-heading text-2xl uppercase">{latest.title}</div>
+              <p className="mt-1 text-sm text-zinc-300">{latest.tagline}</p>
+              <Link to={`/app/products/${latest.id}`} className="mt-4 inline-flex items-center gap-2 bg-[#FF3333] px-4 py-3 font-mono text-xs uppercase tracking-widest text-white btn-hard btn-hard-red">
+                Review and launch <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
           )}
-        </div>
+        </div>}
       </div>
+
+      {latest && firstRun && (
+        <div className="mt-8 border border-[#FFD600] bg-[#FFD600]/10 p-5">
+          <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">First action complete</div>
+          <div className="font-heading text-3xl uppercase">{latest.title}</div>
+          <p className="mt-1 text-sm text-zinc-300">Next step: launch now.</p>
+          <Link to={`/app/products/${latest.id}`} className="btn-hard btn-hard-red mt-4 inline-flex items-center gap-2 bg-[#FF3333] px-5 py-3 font-mono text-xs uppercase tracking-widest text-white">
+            Launch now <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+      )}
+
+      {!firstRun && <div className="mt-10 border border-zinc-800 bg-zinc-950">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-6 py-4">
+          <div className="font-mono text-xs uppercase tracking-widest">Business library - {items.length}</div>
+          <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">Testing products become winners through tracking</div>
+        </div>
+        {items.length === 0 ? (
+          <div className="p-10 text-center font-mono text-xs uppercase tracking-widest text-zinc-500">
+            No products yet. Choose a direction and build the first one.
+          </div>
+        ) : (
+          <div className="divide-y divide-zinc-800">
+            {items.map((p) => (
+              <div key={p.id} className="p-5 transition-colors hover:bg-zinc-900" data-testid={`product-row-${p.id}`}>
+                <div className="flex items-start justify-between gap-4">
+                  <Link to={`/app/products/${p.id}`} className="min-w-0 flex-1">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className={`font-mono text-[10px] uppercase tracking-widest px-2 py-0.5 ${p.launched_stores?.length ? "bg-[#FFD600] text-black" : "bg-zinc-800 text-zinc-300"}`}>
+                        {p.winners?.length ? "Winning product" : p.launched_stores?.length ? "Testing product" : "Draft"}
+                      </span>
+                      <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">${p.price}</span>
+                    </div>
+                    <div className="truncate font-heading text-2xl uppercase">{p.title}</div>
+                    <div className="line-clamp-1 text-sm text-zinc-400">{p.tagline}</div>
+                    <div className="mt-2 flex gap-4 font-mono text-[10px] uppercase tracking-widest text-zinc-500">
+                      <span>{p.campaigns_count} campaigns</span>
+                      <span className="text-[#FF3333]">{p.launched_stores?.length || 0} stores live</span>
+                    </div>
+                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link to={`/app/products/${p.id}`} className="p-2 text-zinc-400 hover:text-white" title="Open" data-testid={`open-${p.id}`}>
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                    <button onClick={() => del(p.id)} className="p-2 text-zinc-400 hover:text-[#FF3333]" title="Delete" data-testid={`delete-${p.id}`}>
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>}
+    </div>
+  );
+}
+
+function StepLabel({ n, label }) {
+  return (
+    <div className="mb-5 flex items-center gap-3 font-mono text-xs uppercase tracking-widest text-zinc-400">
+      <span className="bg-[#FFD600] px-2 py-1 text-black">{n}</span>
+      {label}
     </div>
   );
 }
 
 function Field({ label, value, onChange, testid, ...rest }) {
   return (
-    <label className="block mb-4">
-      <span className="block font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-400 mb-2">{label}</span>
-      <input
-        {...rest}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        data-testid={testid}
-        className="w-full bg-transparent border border-zinc-800 px-4 py-3 text-white font-mono text-sm focus:border-[#FFD600] focus:outline-none"
-      />
+    <label className="mb-4 block">
+      <span className="mb-2 block font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-400">{label}</span>
+      <input {...rest} value={value} onChange={(e) => onChange(e.target.value)} data-testid={testid} className="w-full border border-zinc-800 bg-transparent px-4 py-3 font-mono text-sm text-white focus:border-[#FFD600] focus:outline-none" />
     </label>
+  );
+}
+
+function Insight({ icon, title, text }) {
+  return (
+    <div className="border border-zinc-800 bg-black p-4">
+      <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">
+        {icon}
+        {title}
+      </div>
+      <p className="text-sm text-zinc-300">{text}</p>
+    </div>
   );
 }

@@ -149,6 +149,22 @@ class Product(BaseModel):
     created_at: str
     campaigns_count: int = 0
     launched_stores: List[str] = []
+    launched_at: Optional[str] = None
+    sales_count: int = 0
+    revenue: float = 0.0
+    winners: List[str] = []
+
+
+class UpdateProductReq(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    tagline: Optional[str] = Field(default=None, max_length=300)
+    description: Optional[str] = Field(default=None, max_length=1500)
+    target_audience: Optional[str] = Field(default=None, max_length=300)
+    price: Optional[float] = Field(default=None, ge=0)
+    bullet_features: Optional[List[str]] = None
+    outline: Optional[List[str]] = None
+    sales_copy: Optional[str] = Field(default=None, max_length=3000)
+    cover_concept: Optional[str] = Field(default=None, max_length=500)
 
 
 class CampaignReq(BaseModel):
@@ -205,6 +221,11 @@ class SaleEventReq(BaseModel):
     source: Literal["tiktok", "meta"]
     content_id: str
     value: float = 0.0
+
+
+class FirstResultEventReq(BaseModel):
+    action: Literal["copy_post", "marked_posted", "copy_link", "opened_link", "dismissed"]
+    content_id: Optional[str] = None
 
 
 WINNER_MIN_CLICKS = 20
@@ -660,6 +681,28 @@ async def get_product(pid: str, user=Depends(current_user)):
     return Product(**p)
 
 
+@api.patch("/products/{pid}", response_model=Product)
+async def update_product(pid: str, req: UpdateProductReq, user=Depends(current_user)):
+    current = await db.products.find_one({"id": pid, "user_id": user["id"]}, {"_id": 0})
+    if not current:
+        raise HTTPException(404, "Product not found")
+
+    changes = req.model_dump(exclude_unset=True)
+    if "bullet_features" in changes and changes["bullet_features"] is not None:
+        changes["bullet_features"] = [str(b).strip() for b in changes["bullet_features"] if str(b).strip()][:10]
+    if "outline" in changes and changes["outline"] is not None:
+        changes["outline"] = [str(o).strip() for o in changes["outline"] if str(o).strip()][:15]
+    if "price" in changes and changes["price"] is not None:
+        changes["price"] = round(float(changes["price"]), 2)
+
+    if changes:
+        changes["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.products.update_one({"id": pid, "user_id": user["id"]}, {"$set": changes})
+
+    updated = await db.products.find_one({"id": pid, "user_id": user["id"]}, {"_id": 0})
+    return Product(**updated)
+
+
 @api.delete("/products/{pid}")
 async def delete_product(pid: str, user=Depends(current_user)):
     res = await db.products.delete_one({"id": pid, "user_id": user["id"]})
@@ -956,7 +999,10 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
     if live_ids:
         await db.products.update_one(
             {"id": product["id"]},
-            {"$addToSet": {"launched_stores": {"$each": live_ids}}},
+            {
+                "$addToSet": {"launched_stores": {"$each": live_ids}},
+                "$set": {"launched_at": now},
+            },
         )
     # Launch success email (best-effort, only if at least one LIVE listing)
     try:
@@ -1520,6 +1566,93 @@ async def analytics(product_id: str, user=Depends(current_user)):
     }
 
 
+
+
+@api.get("/first-result/{product_id}")
+async def first_result_status(product_id: str, user=Depends(current_user)):
+    product = await db.products.find_one({"id": product_id, "user_id": user["id"]}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+
+    listings = await db.listings.find(
+        {"product_id": product_id, "user_id": user["id"]},
+        {"_id": 0},
+    ).to_list(50)
+    perf = await _compute_performance(product_id, user["id"])
+    totals = {
+        "clicks": sum(p["clicks"] for p in perf["performance"]),
+        "sales": sum(p["sales"] for p in perf["performance"]),
+        "revenue": round(sum(p["revenue"] for p in perf["performance"]), 2),
+    }
+    events = await db.first_result_events.find(
+        {"product_id": product_id, "user_id": user["id"]},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(100)
+    copied = any(e.get("action") == "copy_post" for e in events)
+    posted = any(e.get("action") == "marked_posted" for e in events)
+    link_shared = any(e.get("action") == "copy_link" for e in events)
+
+    posts = await db.tiktok_posts.find(
+        {"product_id": product_id, "user_id": user["id"]},
+        {"_id": 0, "user_id": 0},
+    ).sort("created_at", -1).to_list(3)
+    real_listing = next((l for l in listings if l.get("real")), None)
+    product_url = (real_listing or (listings[0] if listings else {})).get("listing_url", "")
+    launch_times = [l.get("launched_at") for l in listings if l.get("launched_at")]
+    launched_at = product.get("launched_at") or (min(launch_times) if launch_times else None)
+    backend_base = os.environ.get("BACKEND_URL", "")
+    for idx, row in enumerate(posts):
+        content_id = f"tiktok_post_{idx + 1}"
+        row["content_id"] = content_id
+        row["tracking_url"] = (
+            _track_url(backend_base, product_id, "tiktok", content_id)
+            if backend_base else
+            _append_utm(product_url, "tiktok", product_id, content_id)
+        )
+
+    return {
+        "product_id": product_id,
+        "product_title": product["title"],
+        "launched": bool(listings),
+        "launched_at": launched_at,
+        "product_url": product_url,
+        "posts": posts,
+        "totals": totals,
+        "milestones": {
+            "first_engagement": copied or posted,
+            "first_post": posted,
+            "product_link_shared": link_shared,
+            "first_click": totals["clicks"] > 0,
+            "first_visitor": totals["clicks"] > 0,
+            "first_sale": totals["sales"] > 0,
+        },
+        "events": events,
+        "next_step": (
+            "Post one TikTok asset now"
+            if not posted else
+            "Wait for the first click"
+            if totals["clicks"] == 0 else
+            "Keep posting the strongest hook"
+            if totals["sales"] == 0 else
+            "Turn the winner into a campaign"
+        ),
+    }
+
+
+@api.post("/first-result/{product_id}/event")
+async def first_result_event(product_id: str, req: FirstResultEventReq, user=Depends(current_user)):
+    product = await db.products.find_one({"id": product_id, "user_id": user["id"]}, {"_id": 0, "id": 1})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    await db.first_result_events.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "product_id": product_id,
+        "action": req.action,
+        "content_id": req.content_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True}
 
 
 # ---------- Mount ----------

@@ -5,10 +5,10 @@ import api from "../api";
 import { useAuth } from "../auth";
 
 const TIERS = [
-  { id: "free", name: "Free", price: "$0", limit: "5 generations", border: "border-zinc-800", badge: null, perks: ["5 product generations", "Basic ads", "All 7 stores", "Community support"] },
-  { id: "starter", name: "Starter", price: "$29", limit: "50/mo", border: "border-white", badge: null, perks: ["50 generations", "All ad platforms", "All stores", "Email support"] },
-  { id: "pro", name: "Pro", price: "$49.99", limit: "500/mo", border: "border-[#FFD600]", badge: "HUSTLER", perks: ["500 generations", "Priority generation", "All stores + analytics", "Priority support"] },
-  { id: "enterprise", name: "CEO", price: "$299.99", limit: "Unlimited", border: "border-[#FF3333]", badge: null, perks: ["Unlimited", "API access", "White-label", "Dedicated success"] },
+  { id: "free", name: "Free", price: "$0", limit: "1-3 launches", border: "border-zinc-800", badge: null, perks: ["Manual launch flow", "Basic TikTok content", "First result tracking", "No card required"] },
+  { id: "starter", name: "Starter", price: "$29", limit: "50 loops/mo", border: "border-white", badge: null, perks: ["More launch loops", "More remix attempts", "All ad platforms", "Email support"] },
+  { id: "pro", name: "Pro", price: "$49.99", limit: "500 loops/mo", border: "border-[#FFD600]", badge: "SCALE", perks: ["Batch product launches", "Advanced content variations", "Faster cycles", "All stores + analytics"] },
+  { id: "enterprise", name: "CEO", price: "$299.99", limit: "Usage scaling", border: "border-[#FF3333]", badge: null, perks: ["Usage-based scaling options", "API access", "White-label", "Dedicated success"] },
 ];
 
 const TEX = "https://images.unsplash.com/photo-1768622943825-2416a5584b65?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwyfHxncml0dHklMjBjb25jcmV0ZSUyMHRleHR1cmUlMjBkYXJrfGVufDB8fHx8MTc3NzI2MTg0OHww&ixlib=rb-4.1.0&q=85";
@@ -61,9 +61,11 @@ export default function Pricing() {
         <div className="max-w-7xl mx-auto px-6 py-24">
           <div className="font-mono text-xs uppercase tracking-[0.3em] text-[#FFD600] mb-4">▮ Pricing</div>
           <h1 className="font-heading text-6xl lg:text-8xl uppercase mb-4 leading-[0.9]">
-            Pay <span className="text-[#FF3333]">filthy.</span> Win bigger.
+            This is working. <span className="text-[#FF3333]">Scale it.</span>
           </h1>
-          <p className="text-lg text-zinc-400 max-w-2xl mb-16">No hidden fees. No platform tax. Cancel anytime.</p>
+          <p className="text-lg text-zinc-400 max-w-2xl mb-16">
+            Start free. Upgrade when you have proof and want more speed, more remixing, and more launch momentum.
+          </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-px bg-zinc-800 border border-zinc-800">
             {err && (
@@ -105,7 +107,7 @@ export default function Pricing() {
                       <Loader2 className="w-3 h-3 animate-spin" /> Redirecting…
                     </span>
                   ) : (
-                    <>{t.id === "free" ? "Start free" : "Get started"} →</>
+                    <>{t.id === "free" ? "Start free" : "Scale this"}</>
                   )}
                 </button>
               </div>
