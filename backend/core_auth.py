@@ -82,7 +82,8 @@ async def current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(b
 
 
 async def current_admin(user=Depends(current_user)):
-    if user.get("role") != "admin":
+    # Treat the configured OWNER_EMAIL as admin even if the DB role field is stale.
+    if user.get("role") != "admin" and not is_owner_email(user.get("email", "")):
         raise HTTPException(403, "Admin only")
     return user
 

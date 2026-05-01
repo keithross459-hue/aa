@@ -414,6 +414,14 @@ async def login(req: LoginReq):
         raise HTTPException(401, "Invalid credentials")
     if user.get("banned"):
         raise HTTPException(403, "Account suspended")
+    # If this is the configured OWNER_EMAIL, force admin so the UI unlocks.
+    if is_owner_email(user.get("email", "")) and user.get("role") != "admin":
+        try:
+            await db.users.update_one({"id": user["id"]}, {"$set": {"role": "admin"}})
+            user["role"] = "admin"
+        except Exception:
+            # Don't block login if Mongo is transiently unavailable.
+            pass
     return AuthResp(token=make_token(user["id"]), user=_user_out(user))
 
 

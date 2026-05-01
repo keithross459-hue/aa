@@ -2,21 +2,47 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from db import db
 from services import stripe_service
 
 
-def _dt(days: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+def _cutoff_dt(days: int) -> datetime:
+    return datetime.now(timezone.utc) - timedelta(days=days)
+
+
+def _as_dt(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str) and value:
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except Exception:
+            return None
+    return None
 
 
 PLAN_PRICES = {k: float(v["amount_usd"]) for k, v in stripe_service.PLAN_CONFIG.items()}
 
 
 async def executive_dashboard() -> Dict[str, Any]:
-    users = await db.users.find({}, {"_id": 0, "id": 1, "plan": 1, "created_at": 1, "subscription_status": 1}).to_list(10000)
+    users = await db.users.find(
+        {},
+        {
+            "_id": 0,
+            "id": 1,
+            "plan": 1,
+            "created_at": 1,
+            "subscription_status": 1,
+            "subscription_cancelled_at": 1,
+            "plan_updated_at": 1,
+        },
+    ).to_list(10000)
     paid_users = [u for u in users if u.get("plan") in PLAN_PRICES and u.get("subscription_status") != "canceled"]
     mrr = round(sum(PLAN_PRICES.get(u.get("plan"), 0) for u in paid_users), 2)
     arr = round(mrr * 12, 2)
@@ -31,20 +57,33 @@ async def executive_dashboard() -> Dict[str, Any]:
     ltv = round(gross / paid_count, 2) if tx_paid else 0.0
     cac = round(cac_spend / paid_count, 2) if cac_spend else 0.0
 
-    cancelled_30d = await db.users.count_documents({"subscription_status": "canceled", "subscription_cancelled_at": {"$gte": _dt(30)}})
+    cutoff_30 = _cutoff_dt(30)
+    cancelled_30d = len(
+        [
+            u
+            for u in users
+            if u.get("subscription_status") == "canceled"
+            and (_as_dt(u.get("subscription_cancelled_at")) or datetime.min.replace(tzinfo=timezone.utc)) >= cutoff_30
+        ]
+    )
     churn = round(cancelled_30d / max(len(paid_users) + cancelled_30d, 1), 4)
-    signups_30d = await db.users.count_documents({"created_at": {"$gte": _dt(30)}})
-    paid_30d = await db.users.count_documents({"plan": {"$in": list(PLAN_PRICES)}, "plan_updated_at": {"$gte": _dt(30)}})
+    signups_30d = len([u for u in users if (_as_dt(u.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)) >= cutoff_30])
+    paid_30d = len(
+        [
+            u
+            for u in users
+            if u.get("plan") in PLAN_PRICES
+            and (_as_dt(u.get("plan_updated_at")) or datetime.min.replace(tzinfo=timezone.utc)) >= cutoff_30
+        ]
+    )
     conversion = round(paid_30d / max(signups_30d, 1), 4)
 
     products = await db.products.find({}, {"_id": 0}).to_list(10000)
     launches = await db.listings.find({}, {"_id": 0}).to_list(10000)
     successful_launches = [l for l in launches if l.get("status") in ("LIVE", "SIMULATED")]
     launch_success_rate = round(len(successful_launches) / max(len(launches), 1), 4)
-    onboarding_completion = round(
-        len([u for u in users if any(p.get("user_id") == u["id"] for p in products)]) / max(len(users), 1),
-        4,
-    )
+    product_user_ids = {p.get("user_id") for p in products if p.get("user_id")}
+    onboarding_completion = round(len([u for u in users if u.get("id") in product_user_ids]) / max(len(users), 1), 4)
 
     tracking = await db.tracking_events.find({}, {"_id": 0}).to_list(20000)
     clicks = len([e for e in tracking if e.get("event_type") == "click"])
@@ -75,7 +114,8 @@ async def executive_dashboard() -> Dict[str, Any]:
 
     cohorts = []
     for days in (7, 30, 60, 90):
-        cohort_users = [u for u in users if u.get("created_at", "") >= _dt(days)]
+        cutoff = _cutoff_dt(days)
+        cohort_users = [u for u in users if (_as_dt(u.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)) >= cutoff]
         active = [u for u in cohort_users if u.get("subscription_status") in ("active", "trialing")]
         cohorts.append({"window_days": days, "users": len(cohort_users), "retained_paid": len(active), "retention": round(len(active) / max(len(cohort_users), 1), 4)})
 

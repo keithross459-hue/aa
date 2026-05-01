@@ -4,11 +4,37 @@ import { BarChart3, DollarSign, FlaskConical, MousePointer2, Radio, Users } from
 
 export default function ExecutiveAnalytics() {
   const [data, setData] = useState(null);
+  const [err, setErr] = useState("");
 
   useEffect(() => {
-    api.get("/analytics/executive").then((r) => setData(r.data));
+    let alive = true;
+    setErr("");
+    api.get("/analytics/executive")
+      .then((r) => {
+        if (!alive) return;
+        setData(r.data);
+      })
+      .catch((ex) => {
+        if (!alive) return;
+        const status = ex?.response?.status;
+        const detail = ex?.response?.data?.detail;
+        if (status === 401) setErr("Not authenticated. Please log in again.");
+        else if (status === 403) setErr("Admin only. Log in with the operator (owner) account to view this dashboard.");
+        else setErr(typeof detail === "string" ? detail : "Failed to load analytics.");
+      });
+    return () => { alive = false; };
   }, []);
 
+  if (err) {
+    return (
+      <div className="p-12">
+        <div className="border border-[#FF3333] bg-[#FF3333]/10 p-8">
+          <div className="font-heading text-3xl uppercase text-[#FF3333]">Analytics unavailable</div>
+          <div className="text-zinc-400 mt-2">{err}</div>
+        </div>
+      </div>
+    );
+  }
   if (!data) return <div className="p-12 font-mono text-zinc-400">Loading analytics...</div>;
 
   const metrics = [
