@@ -18,7 +18,7 @@ export default function BillingSuccess() {
       return;
     }
     let attempts = 0;
-    const maxAttempts = 8;
+    const maxAttempts = 30;
     const poll = async () => {
       attempts += 1;
       try {
@@ -57,7 +57,7 @@ export default function BillingSuccess() {
             <Loader2 className="w-10 h-10 text-[#FFD600] animate-spin mb-6" />
             <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-500 mb-2">▮ Processing</div>
             <h1 className="font-heading text-4xl uppercase mb-4">Confirming payment…</h1>
-            <p className="text-zinc-400">This usually takes under 10 seconds. Do not close this window.</p>
+            <p className="text-zinc-400">This usually takes under 10 seconds. If Stripe needs longer, your plan will still update automatically.</p>
           </>
         )}
         {status === "paid" && (
@@ -82,11 +82,11 @@ export default function BillingSuccess() {
               ▮ {status === "timeout" ? "Still processing" : "Something went wrong"}
             </div>
             <h1 className="font-heading text-4xl uppercase mb-4">
-              {status === "timeout" ? "Check back in a minute." : "Payment not confirmed."}
+              {status === "timeout" ? "Still confirming." : "Payment not confirmed."}
             </h1>
             <p className="text-zinc-400 mb-8">
               {status === "timeout"
-                ? "Stripe takes longer sometimes. Your plan will update automatically."
+                ? "Do not pay again yet. Stripe can take a minute to send the final confirmation, and your plan will update automatically."
                 : "Try again or contact support."}
             </p>
             <Link
