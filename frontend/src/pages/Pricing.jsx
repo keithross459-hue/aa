@@ -61,6 +61,7 @@ export default function Pricing() {
   const { user } = useAuth();
   const [busyId, setBusyId] = useState(null);
   const [err, setErr] = useState("");
+  const [notice, setNotice] = useState("");
   const autoStarted = useRef(false);
 
   const upgrade = useCallback(async (planId) => {
@@ -89,6 +90,10 @@ export default function Pricing() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const canceledPlan = params.get("checkout_canceled");
+    if (["starter", "pro", "enterprise"].includes(canceledPlan)) {
+      setNotice(`${canceledPlan} checkout was canceled. You can restart secure checkout when you are ready.`);
+    }
     const checkoutPlan = params.get("checkout");
     if (!user || autoStarted.current || !["starter", "pro", "enterprise"].includes(checkoutPlan)) return;
     autoStarted.current = true;
@@ -130,6 +135,11 @@ export default function Pricing() {
             {err && (
               <div className="col-span-full bg-[#FF3333]/10 border border-[#FF3333] text-[#FF3333] font-mono text-xs uppercase tracking-widest px-4 py-3" data-testid="pricing-error">
                 {String(err)}
+              </div>
+            )}
+            {notice && !err && (
+              <div className="col-span-full bg-[#FFD600]/10 border border-[#FFD600] text-[#FFD600] font-mono text-xs uppercase tracking-widest px-4 py-3" data-testid="pricing-notice">
+                {notice}
               </div>
             )}
             {TIERS.map((t) => (

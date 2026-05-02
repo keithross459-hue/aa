@@ -123,11 +123,11 @@ export default function AppLayout() {
             <span>{pct}%</span>
           </div>
           <Link
-            to="/pricing"
+            to="/pricing?checkout=starter"
             className="block mt-3 text-center bg-[#FFD600] text-black font-mono text-xs uppercase tracking-widest py-2 btn-hard"
             data-testid="upgrade-btn"
           >
-            Get more launches
+            Start Starter - $14.50
           </Link>
         </div>
 

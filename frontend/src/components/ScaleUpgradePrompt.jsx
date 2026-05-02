@@ -43,7 +43,7 @@ export default function ScaleUpgradePrompt({ trigger = "traction", compact = fal
         <Feature icon={<Gauge />} label="More remixes" />
         <Feature icon={<ArrowUpRight />} label="Batch launches" />
       </div>
-      <Link to="/pricing" className="btn-hard mt-4 inline-flex items-center gap-2 bg-[#FFD600] px-4 py-2 font-mono text-xs uppercase tracking-widest text-black">
+      <Link to="/pricing?checkout=starter" className="btn-hard mt-4 inline-flex items-center gap-2 bg-[#FFD600] px-4 py-2 font-mono text-xs uppercase tracking-widest text-black">
         {copy.primary} <ArrowUpRight className="h-3 w-3" />
       </Link>
     </div>

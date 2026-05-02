@@ -61,7 +61,7 @@ async def create_checkout(req: CheckoutReq, user=Depends(current_user)):
     origin = req.origin_url.rstrip("/")
     backend_base = os.environ.get("BACKEND_URL", origin).rstrip("/")
     success_url = f"{origin}/billing/success?session_id={{CHECKOUT_SESSION_ID}}"
-    cancel_url = f"{origin}/pricing"
+    cancel_url = f"{origin}/pricing?checkout_canceled={req.plan}"
 
     res = await stripe_service.create_checkout_session(
         plan=req.plan,

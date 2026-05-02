@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../api";
 import { Link } from "react-router-dom";
-import { CheckCircle2, MousePointerClick, Rocket, ShoppingCart } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, MousePointerClick, Rocket, ShoppingCart, Zap } from "lucide-react";
 import { startStepTimer, trackOnboarding } from "../lib/onboardingTelemetry";
+import { useAuth } from "../auth";
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const [products, setProducts] = useState([]);
   const [signal, setSignal] = useState(null);
 
@@ -47,6 +49,7 @@ export default function Dashboard() {
   }, [activeProduct?.id, activeProduct?.launched_stores?.length]);
 
   const next = nextAction(activeProduct, signal);
+  const showStarterOffer = (user?.plan || "free") === "free" && products.length > 0;
 
   return (
     <div className="p-6 lg:p-10" data-testid="dashboard-page">
@@ -107,6 +110,25 @@ export default function Dashboard() {
               <MiniStat icon={<ShoppingCart />} label="Sales" value={signal?.totals?.sales || 0} />
               <MiniStat icon={<Rocket />} label="Live" value={activeProduct.launched_stores?.length || 0} />
             </div>
+
+            {showStarterOffer && (
+              <div className="mt-6 border border-[#FFD600] bg-[#FFD600]/10 p-4" data-testid="dashboard-starter-offer">
+                <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">
+                  <Zap className="h-3 w-3" /> Founder offer
+                </div>
+                <div className="font-heading text-2xl uppercase">50 launch loops for $14.50</div>
+                <p className="mt-2 text-sm text-zinc-300">
+                  Keep testing while the first idea is fresh. Starter unlocks more products, remixes, and campaign angles.
+                </p>
+                <Link
+                  to="/pricing?checkout=starter"
+                  className="btn-hard mt-4 inline-flex items-center gap-2 bg-[#FFD600] px-4 py-2 font-mono text-xs uppercase tracking-widest text-black"
+                  data-testid="dashboard-starter-checkout"
+                >
+                  Start Starter <ArrowUpRight className="h-3 w-3" />
+                </Link>
+              </div>
+            )}
           </aside>
         </div>
       )}
