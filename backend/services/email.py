@@ -66,7 +66,7 @@ TEMPLATES = {
         "subject": "Welcome to FiiLTHY.AI — go viral or go broke",
         "render": lambda d: _wrap(
             f"Welcome{', ' + d['name'] if d.get('name') else ''}.",
-            "You just unlocked the viral product factory. Generate your first digital product, launch it to seven storefronts, and get five-platform ad creative — in under two minutes.<br/><br/>"
+            "You just unlocked the viral product factory. Generate your first digital product, connect a real store, and build five-platform ad creative in under two minutes.<br/><br/>"
             "Your free plan includes <b>5 generations</b>. Upgrade any time to crank through dozens.",
             "Generate my first product", f"{BRAND_URL}/app/products",
         ),

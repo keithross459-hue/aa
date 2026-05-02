@@ -130,9 +130,9 @@ def test_07_tiktok_export_empty_before_gen():
     assert j["count"] == 0
 
 
-# ---- /api/launch auto-generates TikTok posts (stores=['stan_store'] only) ----
+# ---- /api/launch does not create simulated TikTok posts ----
 def test_08_launch_auto_generates_tiktok():
-    """Launch with only stan_store (simulated, fast). Should auto-gen 5 TikTok posts in background."""
+    """Launch with only stan_store should not create a simulated listing."""
     # capture current usage before launch
     me_before = requests.get(f"{API}/auth/me", headers=auth_headers(state["token"])).json()
     state["gen_used_before_launch"] = me_before["generations_used"]
@@ -147,7 +147,8 @@ def test_08_launch_auto_generates_tiktok():
     listings = r.json()["listings"]
     assert len(listings) == 1
     assert listings[0]["store_id"] == "stan_store"
-    assert listings[0]["status"] == "SIMULATED"
+    assert listings[0]["status"] in ("NOT_CONFIGURED", "FAILED", "LIVE")
+    state["stan_launch_live"] = listings[0]["status"] == "LIVE" and listings[0].get("real") is True
 
     # Usage should NOT have incremented from launch auto-gen
     me_after = requests.get(f"{API}/auth/me", headers=auth_headers(state["token"])).json()
@@ -157,15 +158,16 @@ def test_08_launch_auto_generates_tiktok():
 
 
 def test_09_tiktok_export_after_launch_has_5_posts():
-    """/api/launch auto-gen should have produced 5 tiktok posts."""
+    """/api/launch only auto-generates TikTok posts after a real live publish."""
     r = requests.get(
         f"{API}/tiktok/export/{state['product_id']}",
         headers=auth_headers(state["token"]),
     )
     assert r.status_code == 200, r.text
     j = r.json()
-    assert j["count"] == 5, f"Expected 5 auto-generated posts, got {j['count']}"
-    assert len(j["posts"]) == 5
+    expected = 5 if state.get("stan_launch_live") else 0
+    assert j["count"] == expected, f"Expected {expected} auto-generated posts, got {j['count']}"
+    assert len(j["posts"]) == expected
     for p in j["posts"]:
         assert p.get("id")
         assert p.get("hook")

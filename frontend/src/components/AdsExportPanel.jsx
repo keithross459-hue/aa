@@ -45,7 +45,7 @@ export default function AdsExportPanel({ productId }) {
   if (loading) {
     return (
       <div className="p-10 flex items-center gap-3 text-zinc-400 font-mono text-xs uppercase tracking-widest">
-        <Loader2 className="w-4 h-4 animate-spin" /> Loading export…
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading export...
       </div>
     );
   }
@@ -69,7 +69,7 @@ export default function AdsExportPanel({ productId }) {
     );
     data.creatives.forEach((c, i) => {
       out.push(
-        `AD #${i + 1}${c.recommended ? "  🔥 RECOMMENDED" : ""}\nHeadline:\n${c.headline}\n\nPrimary Text:\n${c.primary_text}\n\nImage: ${c.image_url}\n`
+        `AD #${i + 1}${c.recommended ? "  RECOMMENDED" : ""}\nHeadline:\n${c.headline}\n\nPrimary Text:\n${c.primary_text}\n\nImage: ${c.image_url}\n`
       );
     });
     out.push(`PRODUCT LINK\n${data.product_url}`);
@@ -82,7 +82,7 @@ export default function AdsExportPanel({ productId }) {
       <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <div className="font-mono text-[10px] uppercase tracking-widest bg-[#FFD600] text-black px-2 py-0.5">
-            Ready · Manual Launch
+            Ready - Manual Launch
           </div>
           <div className="font-mono text-xs uppercase tracking-widest">Ads ready to launch</div>
         </div>
@@ -211,7 +211,7 @@ export default function AdsExportPanel({ productId }) {
             <span className="text-[#FFD600]">1.</span> Click "Open Meta Ads Manager"
           </li>
           <li>
-            <span className="text-[#FFD600]">2.</span> Create campaign → Objective: <b className="text-white">Sales</b>
+            <span className="text-[#FFD600]">2.</span> Create campaign -> Objective: <b className="text-white">Sales</b>
           </li>
           <li>
             <span className="text-[#FFD600]">3.</span> Paste creatives (we pre-picked the winner)
@@ -221,7 +221,7 @@ export default function AdsExportPanel({ productId }) {
           </li>
         </ol>
         <div className="mt-4 border border-[#FFD600] bg-[#FFD600]/5 p-3 font-mono text-xs text-[#FFD600] uppercase tracking-widest">
-          ⚡ Post 3 videos today → get first sale
+          Post 3 videos today -> get first sale
         </div>
       </Section>
     </div>

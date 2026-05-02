@@ -4,7 +4,7 @@ FiiLTHY.AI backend tests:
 - products generate/list/get
 - campaigns generate/list (+ filter)
 - stores
-- launch (simulated multi-store)
+- launch (real-only store publishing)
 - listings list (+ filter)
 - stats
 - usage limit (free plan caps at 5 generations -> 6th -> 403 LIMIT_REACHED)
@@ -106,9 +106,9 @@ def test_stores():
     r = requests.get(f"{API}/stores")
     assert r.status_code == 200
     stores = r.json()["stores"]
-    assert len(stores) == 7
+    assert len(stores) == 4
     ids = {s["id"] for s in stores}
-    assert {"gumroad", "stan_store", "whop", "payhip", "etsy_digital", "stripe_link", "shopify_digital"} <= ids
+    assert ids == {"gumroad", "stan_store", "whop", "payhip"}
 
 
 # ---- product generate (slow LLM call) ----
@@ -227,7 +227,7 @@ def test_launch_gumroad_only_real():
 
 
 def test_launch_all_stores_mixed():
-    """Launch to all 7 (no stores param). gumroad=LIVE+real, others=SIMULATED+real=false."""
+    """Launch to real store integrations only."""
     r = requests.post(
         f"{API}/launch",
         headers=auth_headers(state["token"]),
@@ -237,7 +237,7 @@ def test_launch_all_stores_mixed():
     assert r.status_code == 200, r.text
     j = r.json()
     assert j["product_id"] == state["product_id"]
-    assert len(j["listings"]) == 7
+    assert len(j["listings"]) == 4
     by_id = {l["store_id"]: l for l in j["listings"]}
 
     g = by_id["gumroad"]
@@ -245,23 +245,21 @@ def test_launch_all_stores_mixed():
     assert g["real"] is True
     assert "gumroad.com" in g["listing_url"]
 
-    sim_stores = ["stan_store", "whop", "payhip", "etsy_digital", "stripe_link", "shopify_digital"]
-    for sid in sim_stores:
+    for sid in ["stan_store", "whop", "payhip"]:
         l = by_id[sid]
-        assert l["status"] == "SIMULATED", f"{sid}: {l['status']}"
-        assert l["real"] is False
-        assert l["listing_url"].startswith("https://")
-        assert "fiilthy.ai" in l["listing_url"]
+        assert l["status"] in ("NOT_CONFIGURED", "FAILED", "LIVE"), f"{sid}: {l['status']}"
+        if l["status"] != "LIVE":
+            assert l["real"] is False
 
-    # product.launched_stores updated to all 7
+    # product.launched_stores includes only real LIVE publishes
     p = requests.get(f"{API}/products/{state['product_id']}", headers=auth_headers(state["token"])).json()
-    assert len(p["launched_stores"]) == 7
+    assert all(s in {"gumroad", "stan_store", "whop", "payhip"} for s in p["launched_stores"])
 
 
 def test_listings():
     r = requests.get(f"{API}/listings", headers=auth_headers(state["token"]))
     assert r.status_code == 200
-    assert len(r.json()["listings"]) >= 8  # 1 gumroad-only + 7 all-stores
+    assert len(r.json()["listings"]) >= 4
 
 
 def test_listings_filter():

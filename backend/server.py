@@ -1090,7 +1090,7 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
     existing_meta = await db.meta_launches.find_one(
         {"product_id": product["id"], "user_id": user["id"]}, {"_id": 0}
     )
-    product_url = next((lst.listing_url for lst in listings if lst.real), None)
+    product_url = next((lst.listing_url for lst in listings if lst.real and lst.status == "LIVE"), None)
     if meta_token and meta_ad_account and product_url and not existing_meta:
         try:
             camp_doc = await db.campaigns.find_one(
@@ -1222,10 +1222,11 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
             })
 
     # ===== TIKTOK AUTO-GENERATION =====
+    has_real_listing = any(lst.status == "LIVE" and lst.real for lst in listings)
     existing_tiktok = await db.tiktok_posts.count_documents(
         {"product_id": product["id"], "user_id": user["id"]}
     )
-    if existing_tiktok == 0:
+    if has_real_listing and existing_tiktok == 0:
         try:
             tt_posts = await generate_tiktok_posts(product, count=5)
             for p in tt_posts:
@@ -1285,7 +1286,7 @@ async def meta_export(product_id: str, user=Depends(current_user)):
     listings_rows = await db.listings.find(
         {"product_id": product_id, "user_id": user["id"]}, {"_id": 0}
     ).to_list(50)
-    real_listing = next((l for l in listings_rows if l.get("real")), None)
+    real_listing = next((l for l in listings_rows if l.get("real") and l.get("status") == "LIVE"), None)
     product_url = (real_listing or {}).get("listing_url", "")
     if not product_url:
         raise HTTPException(409, "A real store listing is required before exporting Meta ads.")
@@ -1460,8 +1461,8 @@ async def tiktok_export(product_id: str, user=Depends(current_user)):
     listings_rows = await db.listings.find(
         {"product_id": product_id, "user_id": user["id"]}, {"_id": 0}
     ).to_list(50)
-    real_listing = next((l for l in listings_rows if l.get("real")), None)
-    product_url = (real_listing or (listings_rows[0] if listings_rows else {})).get("listing_url", "")
+    real_listing = next((l for l in listings_rows if l.get("real") and l.get("status") == "LIVE"), None)
+    product_url = (real_listing or {}).get("listing_url", "")
 
     backend_base = os.environ.get("BACKEND_URL", "")
     for idx, r in enumerate(rows):
@@ -1605,8 +1606,8 @@ async def track_go_redirect(product_id: str, source: str, content_id: str):
     })
 
     listings_rows = await db.listings.find({"product_id": product_id}, {"_id": 0}).to_list(20)
-    real = next((l for l in listings_rows if l.get("real")), None)
-    dest = (real or (listings_rows[0] if listings_rows else {})).get("listing_url")
+    real = next((l for l in listings_rows if l.get("real") and l.get("status") == "LIVE"), None)
+    dest = (real or {}).get("listing_url")
     if not dest:
         raise HTTPException(404, "No destination URL")
     final_url = _append_utm(dest, source, product_id, content_id)
@@ -1673,8 +1674,8 @@ async def first_result_status(product_id: str, user=Depends(current_user)):
         {"product_id": product_id, "user_id": user["id"]},
         {"_id": 0, "user_id": 0},
     ).sort("created_at", -1).to_list(3)
-    real_listing = next((l for l in listings if l.get("real")), None)
-    product_url = (real_listing or (listings[0] if listings else {})).get("listing_url", "")
+    real_listing = next((l for l in listings if l.get("real") and l.get("status") == "LIVE"), None)
+    product_url = (real_listing or {}).get("listing_url", "")
     launch_times = [l.get("launched_at") for l in listings if l.get("launched_at")]
     launched_at = product.get("launched_at") or (min(launch_times) if launch_times else None)
     backend_base = os.environ.get("BACKEND_URL", "")
@@ -1690,7 +1691,7 @@ async def first_result_status(product_id: str, user=Depends(current_user)):
     return {
         "product_id": product_id,
         "product_title": product["title"],
-        "launched": bool(listings),
+        "launched": bool(real_listing),
         "launched_at": launched_at,
         "product_url": product_url,
         "posts": posts,

@@ -302,18 +302,14 @@ class TestLaunch:
         assert r.status_code == 200, r.text[:300]
         listings = r.json()["listings"]
         by_id = {lst["store_id"]: lst for lst in listings}
-        # 4 real stores -> NOT_CONFIGURED w/ error & friendly url
+        # 4 real stores -> NOT_CONFIGURED w/ error and no fake URL
         for sid in ("gumroad", "stan_store", "whop", "payhip"):
             assert sid in by_id, f"missing listing for {sid}"
             assert by_id[sid]["status"] == "NOT_CONFIGURED", f"{sid} status={by_id[sid]['status']}"
             assert by_id[sid]["error"]
             assert "Settings" in by_id[sid]["error"]
-            assert by_id[sid]["listing_url"].startswith("http")
+            assert by_id[sid]["listing_url"] == ""
             assert by_id[sid]["real"] is False
-        # Other 3 simulated
-        for sid in ("etsy_digital", "stripe_link", "shopify_digital"):
-            assert sid in by_id
-            assert by_id[sid]["status"] == "SIMULATED"
 
     def test_listings_after_launch(self, fresh_user):
         s = fresh_user["session"]
@@ -322,7 +318,7 @@ class TestLaunch:
         rows = r.json()["listings"]
         statuses = {r["status"] for r in rows}
         assert "NOT_CONFIGURED" in statuses
-        assert "SIMULATED" in statuses
+        assert "SIMULATED" not in statuses
 
 
 # ---------- Stats ----------

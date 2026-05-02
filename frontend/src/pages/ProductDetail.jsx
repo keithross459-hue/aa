@@ -159,6 +159,7 @@ export default function ProductDetail() {
   };
 
   if (!p || !draft) return <div className="p-12 font-mono text-zinc-400">Loading...</div>;
+  const realListings = listings.filter((l) => l.status === "LIVE" && l.real);
 
   return (
     <div className="p-6 lg:p-10" data-testid="product-detail-page">
@@ -296,7 +297,7 @@ export default function ProductDetail() {
       <CampaignList campaigns={campaigns} err={err} />
 
       <div className="mb-10 border border-zinc-800 bg-zinc-950">
-        <PanelHeader title={`Gumroad and store launch - ${listings.length} live`} icon={<Rocket className="h-4 w-4 text-[#FF3333]" />}>
+        <PanelHeader title={`Real store publishing - ${realListings.length} live`} icon={<Rocket className="h-4 w-4 text-[#FF3333]" />}>
           <button onClick={launchAll} disabled={launchBusy || editing} className="btn-hard btn-hard-red flex items-center gap-2 bg-[#FF3333] px-5 py-2 font-mono text-xs uppercase tracking-widest text-white disabled:opacity-60" data-testid="launch-all-btn">
             {launchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Rocket className="h-3 w-3" />} Launch product
           </button>
@@ -306,7 +307,7 @@ export default function ProductDetail() {
         <StoreGrid stores={stores} listings={listings} />
       </div>
 
-      <FirstResultEngine productId={id} launched={listings.length > 0} />
+      <FirstResultEngine productId={id} launched={realListings.length > 0} />
 
       <WorkspaceTitle eyebrow="Analytics and winners" title="Track what is turning into money" />
       <div id="analytics-panel" className="mb-10"><AnalyticsPanel productId={id} /></div>

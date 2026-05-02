@@ -66,7 +66,7 @@ export default function TikTokPanel({ productId }) {
       <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <Music2 className="w-4 h-4 text-[#FF3333]" />
-          <div className="font-mono text-xs uppercase tracking-widest">TikTok Content Engine — {posts.length} posts</div>
+          <div className="font-mono text-xs uppercase tracking-widest">TikTok Content Engine - {posts.length} posts</div>
         </div>
         <button
           onClick={generate}
@@ -87,7 +87,7 @@ export default function TikTokPanel({ productId }) {
 
       {loading ? (
         <div className="p-10 flex items-center gap-3 text-zinc-400 font-mono text-xs uppercase tracking-widest">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading posts…
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading posts...
         </div>
       ) : posts.length === 0 ? (
         <div className="p-10 text-center text-zinc-500 font-mono text-xs uppercase tracking-widest">
