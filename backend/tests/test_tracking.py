@@ -21,11 +21,17 @@ from urllib.parse import urlparse, parse_qs
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
-load_dotenv("/app/backend/.env")
+ROOT_DIR = os.environ.get("APP_ROOT")
+if ROOT_DIR:
+    ROOT_DIR = os.path.abspath(ROOT_DIR)
+else:
+    ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+load_dotenv(os.path.join(ROOT_DIR, "backend", ".env"))
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL")
 if not BASE_URL:
-    with open("/app/frontend/.env") as f:
+    with open(os.path.join(ROOT_DIR, "frontend", ".env")) as f:
         for line in f:
             if line.startswith("REACT_APP_BACKEND_URL="):
                 BASE_URL = line.strip().split("=", 1)[1]

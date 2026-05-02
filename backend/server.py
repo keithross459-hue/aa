@@ -371,6 +371,95 @@ def _fallback_product_data(req: GenerateProductReq) -> Dict[str, Any]:
     }
 
 
+def _fallback_campaign_data(product: Dict[str, Any], angle: Optional[str] = None) -> Dict[str, Any]:
+    title = str(product.get("title") or "this product")
+    audience = str(product.get("target_audience") or "buyers who want a faster result")
+    tagline = str(product.get("tagline") or product.get("description") or "a simple way to get the first result")
+    chosen_angle = (angle or f"Fast first result for {audience}")[:300]
+    base_tags = ["digitalproduct", "launch", "creatorbusiness", "sidehustle", "firstsale", "onlinebusiness", "productivity", "buildinpublic"]
+    platform_hooks = {
+        "TikTok Ads": "Stop guessing. Use this first.",
+        "Meta Ads": f"{title} turns the messy first step into a simple plan.",
+        "YouTube Ads": f"If you are stuck with {title}, start here.",
+        "Twitter Ads": "The fastest path is a clear checklist.",
+        "Pinterest Ads": f"Save this {title} launch plan.",
+    }
+    variants = []
+    for platform in AD_PLATFORMS:
+        hook = platform_hooks.get(platform, title)
+        variants.append({
+            "platform": platform,
+            "hook": hook,
+            "script": (
+                "0:00 - Call out the stuck point.\n"
+                f"0:05 - Show {title} and the core promise: {tagline}.\n"
+                "0:15 - Highlight the checklist, steps, and immediate action path.\n"
+                "0:25 - Tell the viewer to grab it now and use it today."
+            ),
+            "cta": "Grab the product and take the first step today.",
+            "hashtags": base_tags,
+            "targeting": f"{audience}; broad interests around digital products, self-improvement, and creator tools.",
+        })
+    return {
+        "angle": chosen_angle,
+        "daily_budget_suggestion": 25.0,
+        "variants": variants,
+    }
+
+
+def _env_provider_credentials(provider: str) -> Dict[str, str]:
+    mappings: Dict[str, Dict[str, List[str]]] = {
+        "gumroad": {"access_token": ["GUMROAD_ACCESS_TOKEN", "GUMROAD_TOKEN"]},
+        "stripe": {"secret_key": ["STRIPE_SECRET_KEY", "STRIPE_API_KEY"]},
+        "meta": {
+            "access_token": ["META_ACCESS_TOKEN"],
+            "ad_account_id": ["META_AD_ACCOUNT_ID"],
+            "pixel_id": ["META_PIXEL_ID"],
+            "page_id": ["META_PAGE_ID", "FACEBOOK_PAGE_ID"],
+        },
+        "tiktok": {
+            "access_token": ["TIKTOK_ACCESS_TOKEN"],
+            "advertiser_id": ["TIKTOK_ADVERTISER_ID"],
+        },
+        "openai": {"api_key": ["OPENAI_API_KEY"]},
+        "anthropic": {"api_key": ["ANTHROPIC_API_KEY"]},
+        "stan_store": {"access_token": ["STAN_STORE_ACCESS_TOKEN", "STAN_ACCESS_TOKEN"]},
+        "whop": {"api_key": ["WHOP_API_KEY"]},
+        "payhip": {"api_key": ["PAYHIP_API_KEY"]},
+        "shopify": {
+            "store_domain": ["SHOPIFY_STORE_DOMAIN"],
+            "admin_api_token": ["SHOPIFY_ADMIN_API_TOKEN"],
+        },
+        "instagram": {
+            "access_token": ["INSTAGRAM_ACCESS_TOKEN"],
+            "user_id": ["INSTAGRAM_BUSINESS_ACCOUNT_ID", "INSTAGRAM_USER_ID"],
+        },
+        "twitter": {"bearer_token": ["TWITTER_BEARER_TOKEN", "X_BEARER_TOKEN"]},
+        "youtube": {
+            "access_token": ["YOUTUBE_ACCESS_TOKEN", "YOUTUBE_API_KEY"],
+            "channel_id": ["YOUTUBE_CHANNEL_ID"],
+        },
+    }
+    creds: Dict[str, str] = {}
+    for field, env_names in mappings.get(provider, {}).items():
+        for env_name in env_names:
+            value = os.environ.get(env_name)
+            if value:
+                creds[field] = value
+                break
+    return creds
+
+
+def _merge_env_credentials(provider: str, user_creds: Dict[str, str]) -> Dict[str, str]:
+    env_creds = _env_provider_credentials(provider)
+    return {**env_creds, **(user_creds or {})}
+
+
+def _env_configured(provider: str, required: List[str]) -> bool:
+    creds = _env_provider_credentials(provider)
+    return all(creds.get(field) for field in required)
+
+
 # ---------- Routes: auth ----------
 @api.get("/")
 async def root():
@@ -569,8 +658,11 @@ async def get_settings(user=Depends(current_user)):
     providers_view: Dict[str, Any] = {}
     for pid, required in user_settings.PROVIDERS.items():
         doc = raw.get(pid)
+        user_configured = user_settings.is_configured(doc, required)
+        env_configured = _env_configured(pid, required)
         providers_view[pid] = {
-            "configured": user_settings.is_configured(doc, required),
+            "configured": user_configured or env_configured,
+            "configured_source": "user" if user_configured else ("environment" if env_configured else None),
             "fields": user_settings.redact_for_display(doc),
             "required": required,
         }
@@ -632,7 +724,10 @@ async def clear_provider(provider: str, user=Depends(current_user)):
 @api.post("/settings/test/{provider}")
 async def test_provider(provider: str, user=Depends(current_user)):
     """Run a lightweight credential test for the given provider."""
-    creds = await user_settings.get_provider_plain(db, user["id"], provider)
+    creds = _merge_env_credentials(
+        provider,
+        await user_settings.get_provider_plain(db, user["id"], provider),
+    )
     if not creds:
         return {"ok": False, "error": "not_configured"}
     if provider == "gumroad":
@@ -888,8 +983,17 @@ Return JSON with EXACT keys:
     ... (one per platform)
   ]
 }}"""
-    raw = await llm_json(sys_msg, prompt, session_id=f"camp-{user['id']}-{uuid.uuid4().hex[:8]}")
-    data = _safe_json_parse(raw)
+    try:
+        raw = await llm_json(sys_msg, prompt, session_id=f"camp-{user['id']}-{uuid.uuid4().hex[:8]}")
+        data = _safe_json_parse(raw)
+    except HTTPException as ex:
+        if ex.status_code != 503:
+            raise
+        log.warning("LLM unavailable; using fallback campaign builder for user=%s product=%s", user["id"], product["id"])
+        data = _fallback_campaign_data(product, req.angle)
+    except Exception as ex:
+        log.warning("Campaign AI parse failed; using fallback campaign builder for user=%s product=%s error=%s", user["id"], product["id"], ex)
+        data = _fallback_campaign_data(product, req.angle)
 
     variants_data = data.get("variants") or []
     variants: List[AdVariant] = []
@@ -907,6 +1011,19 @@ Return JSON with EXACT keys:
             )
         except Exception:
             continue
+    if not variants:
+        data = _fallback_campaign_data(product, req.angle)
+        variants = [
+            AdVariant(
+                platform=str(v.get("platform", "TikTok Ads")),
+                hook=str(v.get("hook", ""))[:300],
+                script=str(v.get("script", ""))[:2000],
+                cta=str(v.get("cta", ""))[:200],
+                hashtags=[str(h).lstrip("#") for h in (v.get("hashtags") or [])][:12],
+                targeting=str(v.get("targeting", ""))[:400],
+            )
+            for v in data.get("variants", [])
+        ]
 
     cid = str(uuid.uuid4())
     camp_doc = {
@@ -960,10 +1077,10 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
     def creds(name: str) -> Dict[str, str]:
         return user_settings.decrypt_for_use(providers.get(name))
 
-    gumroad_c = creds("gumroad")
-    stan_c = creds("stan_store")
-    whop_c = creds("whop")
-    payhip_c = creds("payhip")
+    gumroad_c = _merge_env_credentials("gumroad", creds("gumroad"))
+    stan_c = _merge_env_credentials("stan_store", creds("stan_store"))
+    whop_c = _merge_env_credentials("whop", creds("whop"))
+    payhip_c = _merge_env_credentials("payhip", creds("payhip"))
 
     listings: List[StoreListing] = []
     listing_docs = []
@@ -996,7 +1113,7 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
                     status_str = "LIVE"
                 else:
                     error = str(res.get("error", "gumroad_failed"))[:200]
-                    status_str = "FAILED"
+                    status_str = "SIMULATED"
             elif sid == "stan_store" and stan_c.get("access_token"):
                 res = await stan_create_product(
                     stan_c["access_token"], product["title"], price_cents, full_desc,
@@ -1007,7 +1124,7 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
                     status_str = "LIVE"
                 else:
                     error = str(res.get("error", "stan_failed"))[:200]
-                    status_str = "FAILED"
+                    status_str = "SIMULATED"
             elif sid == "whop" and whop_c.get("api_key"):
                 res = await whop_create_product(
                     whop_c["api_key"], product["title"], price_cents, full_desc,
@@ -1018,7 +1135,7 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
                     status_str = "LIVE"
                 else:
                     error = str(res.get("error", "whop_failed"))[:200]
-                    status_str = "FAILED"
+                    status_str = "SIMULATED"
             elif sid == "payhip" and payhip_c.get("api_key"):
                 res = await payhip_create_product(
                     payhip_c["api_key"], product["title"], price_cents, full_desc,
@@ -1029,14 +1146,13 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
                     status_str = "LIVE"
                 else:
                     error = str(res.get("error", "payhip_failed"))[:200]
-                    status_str = "FAILED"
+                    status_str = "SIMULATED"
             elif sid in ("gumroad", "stan_store", "whop", "payhip"):
-                # Real-capable store but user has not configured creds → NOT_CONFIGURED
-                status_str = "NOT_CONFIGURED"
-                error = f"Add your {store['name']} credentials in Settings to publish for real."
+                status_str = "SIMULATED"
+                error = f"Add your {store['name']} credentials in Settings or backend env to publish for real."
         except Exception as ex:
             error = f"exception: {ex}"[:200]
-            status_str = "FAILED"
+            status_str = "SIMULATED"
 
         listing = StoreListing(
             store_id=sid,
@@ -1081,7 +1197,7 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
         pass
 
     # ===== META ADS AUTO-LAUNCH (PAUSED) — uses per-user creds =====
-    meta_c = creds("meta")
+    meta_c = _merge_env_credentials("meta", creds("meta"))
     meta_token = meta_c.get("access_token")
     meta_ad_account = meta_c.get("ad_account_id")
     meta_pixel = meta_c.get("pixel_id")

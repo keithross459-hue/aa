@@ -17,7 +17,9 @@ import requests
 from dotenv import load_dotenv
 
 # Ensure REACT_APP_BACKEND_URL is loaded from frontend/.env
-load_dotenv(Path("/app/frontend/.env"))
+ROOT_DIR = Path(os.environ.get("APP_ROOT", Path(__file__).resolve().parents[2]))
+load_dotenv(ROOT_DIR / "backend" / ".env")
+load_dotenv(ROOT_DIR / "frontend" / ".env")
 BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
 API = f"{BASE_URL}/api"
 
