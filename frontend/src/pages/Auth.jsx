@@ -18,12 +18,15 @@ export default function Auth({ mode }) {
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
   const refCode = search.get("ref") || localStorage.getItem("filthy_ref") || "";
+  const planIntent = search.get("plan") || localStorage.getItem("filthy_plan_intent") || "";
   const resetToken = search.get("reset") || "";
   const isReset = Boolean(resetToken) && !isSignup;
 
   useEffect(() => {
     const q = search.get("ref");
     if (q) localStorage.setItem("filthy_ref", q);
+    const p = search.get("plan");
+    if (p) localStorage.setItem("filthy_plan_intent", p);
   }, [search]);
 
   const submit = async (e) => {
@@ -34,14 +37,24 @@ export default function Auth({ mode }) {
     try {
       if (isSignup) {
         await signup(email, password, name, refCode);
-        nav("/app", { replace: true });
+        if (["starter", "pro", "enterprise"].includes(planIntent)) {
+          localStorage.removeItem("filthy_plan_intent");
+          nav(`/pricing?checkout=${planIntent}`, { replace: true });
+        } else {
+          nav("/app", { replace: true });
+        }
       } else if (isReset) {
         await resetPassword(resetToken, password);
         setPassword("");
         setInfo("Password reset. Log in with your new password.");
       } else {
         await login(email, password);
-        nav("/app", { replace: true });
+        if (["starter", "pro", "enterprise"].includes(planIntent)) {
+          localStorage.removeItem("filthy_plan_intent");
+          nav(`/pricing?checkout=${planIntent}`, { replace: true });
+        } else {
+          nav("/app", { replace: true });
+        }
       }
     } catch (ex) {
       setErr(ex?.response?.data?.detail || "Failed. Try again.");
@@ -80,16 +93,15 @@ export default function Auth({ mode }) {
           </Link>
           <div>
             <div className="font-mono text-xs uppercase tracking-[0.3em] text-[#FFD600] mb-4">
-              Field manual
+              Quick start
             </div>
             <h2 className="font-heading text-5xl lg:text-6xl uppercase leading-[0.9]">
-              "Polish is a luxury.
+              "Your first result starts
               <br />
-              <span className="text-[#FF3333]">Shipping is the move.</span>"
+              <span className="text-[#FFD600]">with one clear action.</span>"
             </h2>
             <p className="mt-6 text-zinc-400 max-w-md">
-              You're three minutes away from a live digital product, a five-platform ad campaign, and listings on
-              every storefront that matters.
+              Create the account, build the first product, launch it, and follow the next action until you get a signal.
             </p>
           </div>
         </div>
@@ -102,13 +114,21 @@ export default function Auth({ mode }) {
             <span className="font-heading text-2xl">FiiLTHY<span className="text-[#FF3333]">.</span>AI</span>
           </div>
           <div className="font-mono text-xs uppercase tracking-[0.3em] text-zinc-500 mb-3">
-            {isSignup ? "New filthy operator" : isReset ? "Secure reset" : "Welcome back"}
+            {isSignup ? "Start building" : isReset ? "Secure reset" : "Welcome back"}
           </div>
           <h1 className="font-heading text-5xl uppercase mb-2">
             {isSignup ? "Create account" : isReset ? "Reset password" : "Log in"}
           </h1>
           <p className="text-zinc-400 mb-8">
-            {isSignup ? "5 free generations. No card." : isReset ? "Set a fresh password." : "Pick up where you left off."}
+            {isSignup
+              ? planIntent
+                ? "Create your account, then checkout opens automatically."
+                : "5 free generations. No card."
+              : isReset
+                ? "Set a fresh password."
+                : planIntent
+                  ? "Log in, then checkout opens automatically."
+                  : "Pick up where you left off."}
           </p>
 
           {err && (

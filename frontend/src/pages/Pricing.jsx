@@ -1,8 +1,10 @@
 import { Link } from "react-router-dom";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, CreditCard, Loader2, ShieldCheck, Zap } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
+
+const STARTER_PROMO_CODE = "STARTER50";
 
 const TIERS = [
   {
@@ -20,11 +22,11 @@ const TIERS = [
     id: "starter",
     name: "Starter",
     price: "$29",
-    limit: "Best first paid step",
+    limit: "$14.50 first month",
     border: "border-[#FFD600]",
     badge: "START HERE",
-    note: "Most users should choose this first",
-    cta: "Start Starter - $29",
+    note: "Founder offer: 50% off your first month, then $29/mo",
+    cta: "Start Starter - $14.50",
     featured: true,
     perks: ["50 launch loops/mo", "More remix attempts", "Traffic content for every product", "Email support"],
   },
@@ -59,11 +61,12 @@ export default function Pricing() {
   const { user } = useAuth();
   const [busyId, setBusyId] = useState(null);
   const [err, setErr] = useState("");
+  const autoStarted = useRef(false);
 
-  const upgrade = async (planId) => {
+  const upgrade = useCallback(async (planId) => {
     setErr("");
     if (!user) {
-      window.location.href = "/signup";
+      window.location.href = `/signup?plan=${planId}`;
       return;
     }
     if (planId === "free") {
@@ -75,13 +78,22 @@ export default function Pricing() {
       const r = await api.post("/billing/create-checkout", {
         plan: planId,
         origin_url: window.location.origin,
+        coupon_code: planId === "starter" ? STARTER_PROMO_CODE : undefined,
       });
       window.location.href = r.data.url;
     } catch (ex) {
       setErr(ex?.response?.data?.detail || "Checkout failed. Try again.");
       setBusyId(null);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkoutPlan = params.get("checkout");
+    if (!user || autoStarted.current || !["starter", "pro", "enterprise"].includes(checkoutPlan)) return;
+    autoStarted.current = true;
+    upgrade(checkoutPlan);
+  }, [upgrade, user]);
 
   return (
     <div className="min-h-screen bg-[#09090B] text-white relative" data-testid="pricing-page">
@@ -106,7 +118,7 @@ export default function Pricing() {
             Get more launches. <span className="text-[#FFD600]">Keep momentum.</span>
           </h1>
           <p className="text-lg text-zinc-300 max-w-2xl mb-6">
-            The easiest paid step is Starter. Use it to launch more products, test more angles, and get to your first result faster.
+            The easiest paid step is Starter. Start for $14.50 today, launch more products, test more angles, and keep momentum.
           </p>
           <div className="mb-10 grid max-w-3xl grid-cols-1 gap-px border border-zinc-800 bg-zinc-800 sm:grid-cols-3">
             <TrustItem icon={<ShieldCheck />} label="Secure Stripe checkout" />

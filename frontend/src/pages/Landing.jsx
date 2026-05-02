@@ -50,34 +50,38 @@ export default function Landing() {
         <div className="relative max-w-7xl mx-auto px-6 pt-20 pb-32 grid grid-cols-12 gap-6">
           <div className="col-span-12 lg:col-span-9">
             <div className="font-mono text-xs uppercase tracking-[0.3em] text-[#FFD600] mb-6">
-              ▮ The viral product factory for hustlers
+              ▮ Build, launch, and promote digital products faster
             </div>
             <h1 className="font-heading text-6xl sm:text-7xl lg:text-9xl leading-[0.85] uppercase">
-              Spin up a digital
+              Build a digital
               <br />
-              product. <span className="text-[#FF3333]">Run ads.</span>
+              product. <span className="text-[#FFD600]">Launch it.</span>
               <br />
-              <span className="outline-text">Launch everywhere.</span>
+              <span className="outline-text">Get your first result.</span>
             </h1>
             <p className="mt-8 max-w-2xl text-lg text-zinc-300 font-body">
-              FiiLTHY.AI invents your next sellable digital product, generates the ad campaign for every platform,
-              and ships it to seven storefronts in one click. Built for creators who don't wait for permission.
+              FiiLTHY.AI guides you from niche to product to launch, then gives you TikTok posts, tracking, and the next action to chase your first click or sale.
             </p>
             <div className="mt-10 flex flex-wrap gap-4">
               <Link
                 to="/signup"
-                className="bg-[#FF3333] text-white font-mono text-sm uppercase tracking-widest px-8 py-5 btn-hard btn-hard-red flex items-center gap-2"
+                className="bg-[#FFD600] text-black font-mono text-sm uppercase tracking-widest px-8 py-5 btn-hard flex items-center gap-2"
                 data-testid="hero-cta"
               >
-                <Rocket className="w-4 h-4" /> Get filthy free
+                <Rocket className="w-4 h-4" /> Start free
               </Link>
-              <a
-                href="#how"
+              <Link
+                to="/pricing"
                 className="border border-zinc-700 text-white font-mono text-sm uppercase tracking-widest px-8 py-5 hover:bg-white hover:text-black transition-colors"
                 data-testid="how-link"
               >
-                See the engine →
-              </a>
+                Starter $14.50 today →
+              </Link>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2 font-mono text-[10px] uppercase tracking-widest text-zinc-400">
+              <span className="border border-zinc-800 bg-black/40 px-3 py-2">No card to start</span>
+              <span className="border border-zinc-800 bg-black/40 px-3 py-2">Secure Stripe checkout</span>
+              <span className="border border-zinc-800 bg-black/40 px-3 py-2">Cancel anytime</span>
             </div>
           </div>
           <div className="hidden lg:flex col-span-3 flex-col gap-3 items-end justify-end">
@@ -102,14 +106,14 @@ export default function Landing() {
         <div className="flex marquee-track whitespace-nowrap font-heading text-6xl gap-12">
           {Array.from({ length: 2 }).map((_, i) => (
             <div key={i} className="flex gap-12 px-6">
-              <span className="outline-text">GO VIRAL OR GO BROKE</span>
+              <span className="outline-text">BUILD</span>
               <span className="text-[#FFD600]">★</span>
-              <span>GENERATE.</span>
+              <span>LAUNCH.</span>
               <span className="outline-text">ADVERTISE.</span>
-              <span className="text-[#FF3333]">LAUNCH.</span>
+              <span className="text-[#FF3333]">TRACK.</span>
               <span className="text-[#FFD600]">★</span>
               <span className="outline-text">REPEAT.</span>
-              <span>THE FILTHY WAY.</span>
+              <span>KEEP MOMENTUM.</span>
               <span className="text-[#FFD600]">★</span>
             </div>
           ))}
@@ -126,24 +130,24 @@ export default function Landing() {
             span="col-span-12 lg:col-span-7 row-span-2"
             icon={<Package className="w-8 h-8" />}
             tag="01 / Product Forge"
-            title="AI invents sellable digital products."
-            body="Tell us a niche. Get back a complete product blueprint: title, target persona, price, full outline, sales copy, and a cover concept. Ebooks, courses, Notion templates, prompt packs — your call."
+            title="Create a sellable product draft."
+            body="Tell us a niche. Get a product title, target persona, price, outline, sales copy, and cover concept. Ebooks, courses, Notion templates, prompt packs — your call."
             highlight="#FF3333"
           />
           <Feature
             span="col-span-12 lg:col-span-5"
             icon={<Megaphone className="w-8 h-8" />}
             tag="02 / Campaign Engine"
-            title="Five-platform ad creatives."
-            body="One click → TikTok, Meta, YouTube, Twitter, Pinterest. Hooks, scripts with timestamps, CTAs, hashtags, targeting briefs."
+            title="Traffic content is ready next."
+            body="TikTok hooks, captions, CTAs, scripts, hashtags, and promotion steps are shown clearly so you know what to do after launch."
             highlight="#FFD600"
           />
           <Feature
             span="col-span-12 lg:col-span-5"
             icon={<Rocket className="w-8 h-8" />}
             tag="03 / Multi-Store Launch"
-            title="Live across 7 storefronts."
-            body="Gumroad, Stan Store, Whop, Payhip, Etsy Digital, Stripe, Shopify Digital — listings drafted and pushed in seconds."
+            title="Launch, track, and improve."
+            body="Gumroad publishing, tracking, first-result guidance, and winner signals help you understand what is happening after launch."
             highlight="#FF3333"
           />
         </div>
@@ -159,13 +163,13 @@ export default function Landing() {
         <div className="relative max-w-7xl mx-auto px-6">
           <div className="font-mono text-xs uppercase tracking-[0.3em] text-[#FFD600] mb-4">▮ The drop</div>
           <h2 className="font-heading text-5xl lg:text-7xl uppercase mb-16 max-w-4xl">
-            From <span className="text-[#FF3333]">"I have a niche"</span> to live in 90 seconds.
+            From <span className="text-[#FFD600]">"I have a niche"</span> to a launched product.
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-zinc-800 border border-zinc-800">
             {[
-              { n: "01", t: "Pick a niche", d: "Type two words. We pick the angle.", icon: <Sparkles /> },
-              { n: "02", t: "Generate everything", d: "Product + 5-platform ads in one shot.", icon: <Skull /> },
-              { n: "03", t: "Launch all stores", d: "One click → 7 storefronts go live.", icon: <Rocket /> },
+              { n: "01", t: "Pick a niche", d: "Choose one direction and build the first product.", icon: <Sparkles /> },
+              { n: "02", t: "Launch it", d: "Publish the product and get a live link.", icon: <Skull /> },
+              { n: "03", t: "Promote it", d: "Copy the first post, track clicks, and keep improving.", icon: <Rocket /> },
             ].map((s) => (
               <div key={s.n} className="bg-zinc-950 p-10">
                 <div className="font-mono text-xs text-zinc-500 mb-6">{s.n}</div>
@@ -182,17 +186,17 @@ export default function Landing() {
       <section className="border-t border-zinc-800 py-24">
         <div className="max-w-5xl mx-auto px-6 text-center">
           <h2 className="font-heading text-6xl lg:text-8xl uppercase leading-[0.9]">
-            Stop posting. <span className="text-[#FF3333]">Start shipping.</span>
+            Start free. <span className="text-[#FFD600]">Pay when you want more.</span>
           </h2>
           <p className="mt-6 text-lg text-zinc-400 max-w-2xl mx-auto">
-            Five free generations. No card. No fluff. Just product + ads + launch.
+            Build the first product for free. Starter is $14.50 for the first month when you are ready for more launches.
           </p>
           <Link
             to="/signup"
             className="inline-block mt-10 bg-[#FFD600] text-black font-mono text-sm uppercase tracking-widest px-10 py-5 btn-hard"
             data-testid="bottom-cta"
           >
-            Generate my first product →
+            Build my first product →
           </Link>
         </div>
       </section>
@@ -200,7 +204,7 @@ export default function Landing() {
       <footer className="border-t border-zinc-800 py-8">
         <div className="max-w-7xl mx-auto px-6 flex justify-between items-center font-mono text-[10px] uppercase tracking-widest text-zinc-500">
           <span>© FiiLTHY.AI / 2026</span>
-          <span>Built filthy. Built fast.</span>
+          <span>Build. Launch. Promote. Track.</span>
         </div>
       </footer>
     </div>

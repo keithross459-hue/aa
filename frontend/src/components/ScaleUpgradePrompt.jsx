@@ -5,26 +5,26 @@ const COPY = {
   traction: {
     eyebrow: "Momentum unlocked",
     title: "Keep going with Starter",
-    body: "You have a signal now. Starter gives you more launch loops and remixes without jumping into a big plan.",
-    primary: "Start Starter - $29",
+    body: "You have a signal now. Starter gives you more launch loops and remixes without jumping into a big plan. Founder offer: first month is $14.50.",
+    primary: "Start Starter - $14.50",
   },
   winner: {
     eyebrow: "Winner detected",
     title: "Turn this signal into another launch",
-    body: "Starter unlocks more launch loops so your best signal can become the next product while momentum is warm.",
-    primary: "Start Starter - $29",
+    body: "Starter unlocks more launch loops so your best signal can become the next product while momentum is warm. Founder offer: first month is $14.50.",
+    primary: "Start Starter - $14.50",
   },
   batch: {
     eyebrow: "Batch launch",
     title: "More launches start with Starter",
-    body: "Use Starter first for more product attempts, then move to Pro when you are ready for batch launches.",
-    primary: "Start Starter - $29",
+    body: "Use Starter first for more product attempts, then move to Pro when you are ready for batch launches. Founder offer: first month is $14.50.",
+    primary: "Start Starter - $14.50",
   },
   limit: {
     eyebrow: "Momentum limit",
-    title: "Keep building for $29",
+    title: "Keep building for $14.50",
     body: "You used the free launch fuel. Starter is the smallest paid step for more launches, more remixes, and more chances to get a result.",
-    primary: "Start Starter - $29",
+    primary: "Start Starter - $14.50",
   },
 };
 

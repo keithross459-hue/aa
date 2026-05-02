@@ -40,7 +40,11 @@ export default function Billing() {
         await api.post("/billing/change-plan", { plan });
         setMsg(`Plan changed to ${plan}.`);
       } else {
-        const r = await api.post("/billing/create-checkout", { plan, origin_url: window.location.origin });
+        const r = await api.post("/billing/create-checkout", {
+          plan,
+          origin_url: window.location.origin,
+          coupon_code: plan === "starter" ? "STARTER50" : undefined,
+        });
         window.location.href = r.data.url;
         return;
       }
