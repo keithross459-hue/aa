@@ -225,9 +225,13 @@ class FirstResultEventReq(BaseModel):
     content_id: Optional[str] = None
 
 
-WINNER_MIN_CLICKS = 20
+WINNER_MIN_CTR = 0.03
 WINNER_MIN_CONVERSION = 0.02
-WINNER_MIN_REVENUE = 50.0
+TEST_MIN_CTR = 0.01
+TEST_MAX_CTR = 0.03
+TEST_MIN_IMPRESSIONS = 100
+DEAD_MAX_CTR = 0.01
+DEAD_NO_CONVERSION_IMPRESSIONS = 200
 
 
 class LaunchResult(BaseModel):
@@ -1500,9 +1504,53 @@ def _track_url(backend_base: str, product_id: str, source: str, content_id: str)
     return f"{backend_base.rstrip('/')}/api/track/go?{q}"
 
 
-def _is_winner(clicks: int, sales: int, revenue: float) -> bool:
-    conv = (sales / clicks) if clicks else 0.0
-    return (clicks >= WINNER_MIN_CLICKS and conv >= WINNER_MIN_CONVERSION) or revenue >= WINNER_MIN_REVENUE
+def _is_stable_or_improving(row: Dict[str, Any]) -> bool:
+    return str(row.get("trend", "stable")).lower() in ("stable", "improving")
+
+
+def _winner_loop_decision(row: Dict[str, Any]) -> Dict[str, Any]:
+    impressions = int(row.get("impressions", 0))
+    clicks = int(row.get("clicks", 0))
+    conversions = int(row.get("conversions", 0))
+    ctr = float(row.get("ctr", 0.0))
+    conversion_rate = float(row.get("conversion_rate", 0.0))
+    stable = _is_stable_or_improving(row)
+
+    if ctr > WINNER_MIN_CTR and conversion_rate > WINNER_MIN_CONVERSION and conversions >= 1 and stable:
+        return {
+            "status": "WINNER",
+            "reason": "CTR > 3%, conversion rate > 2%, at least one purchase exists, and performance is stable or improving.",
+            "actions": [
+                "duplicate creatives with 3-5 variations",
+                "increase distribution",
+                "prioritize in storefront",
+                "trigger TikTok auto-generation expansion",
+            ],
+        }
+    if (impressions > 0 and ctr < DEAD_MAX_CTR) or (conversions == 0 and impressions >= DEAD_NO_CONVERSION_IMPRESSIONS) or not stable:
+        return {
+            "status": "DEAD",
+            "reason": "CTR < 1%, no conversions after 200+ impressions, or engagement is declining.",
+            "actions": [
+                "stop spending",
+                "remove from active promotion",
+                "archive or regenerate new variant",
+            ],
+        }
+    if impressions < TEST_MIN_IMPRESSIONS or clicks > 0 or (TEST_MIN_CTR <= ctr <= TEST_MAX_CTR):
+        return {
+            "status": "TEST",
+            "reason": "Insufficient data, clicks without conversion, or CTR is still in the learning range.",
+            "actions": [
+                "test a new hook",
+                "test a new thumbnail angle",
+            ],
+        }
+    return {
+        "status": "TEST",
+        "reason": "No decisive conversion signal yet.",
+        "actions": ["test a new audience variation"],
+    }
 
 
 async def _compute_performance(product_id: str, user_id: str) -> Dict[str, Any]:
@@ -1510,6 +1558,7 @@ async def _compute_performance(product_id: str, user_id: str) -> Dict[str, Any]:
         {"$match": {"product_id": product_id, "user_id": user_id}},
         {"$group": {
             "_id": {"source": "$source", "content_id": "$content_id"},
+            "impressions": {"$sum": {"$cond": [{"$eq": ["$event_type", "impression"]}, 1, 0]}},
             "clicks": {"$sum": {"$cond": [{"$eq": ["$event_type", "click"]}, 1, 0]}},
             "sales": {"$sum": {"$cond": [{"$eq": ["$event_type", "sale"]}, 1, 0]}},
             "revenue": {"$sum": {"$cond": [{"$eq": ["$event_type", "sale"]}, {"$ifNull": ["$value", 0]}, 0]}},
@@ -1518,27 +1567,96 @@ async def _compute_performance(product_id: str, user_id: str) -> Dict[str, Any]:
     rows = await db.tracking_events.aggregate(pipeline).to_list(1000)
     performance: List[Dict[str, Any]] = []
     winners: List[str] = []
+    test_products: List[Dict[str, Any]] = []
+    dead_products: List[Dict[str, Any]] = []
+    scaling_actions: List[Dict[str, Any]] = []
+    killing_actions: List[Dict[str, Any]] = []
     for r in rows:
+        impressions = int(r.get("impressions", 0))
         clicks = int(r.get("clicks", 0))
         sales = int(r.get("sales", 0))
         revenue = float(r.get("revenue", 0.0))
+        ctr = (clicks / impressions) if impressions else 0.0
         conv = (sales / clicks) if clicks else 0.0
-        win = _is_winner(clicks, sales, revenue)
         src = r["_id"]["source"]
         cid = r["_id"]["content_id"]
-        performance.append({
+        perf_row = {
             "source": src,
             "content_id": cid,
+            "impressions": impressions,
             "clicks": clicks,
             "sales": sales,
+            "conversions": sales,
             "revenue": round(revenue, 2),
+            "ctr": round(ctr, 4),
             "conversion_rate": round(conv, 4),
-            "is_winner": win,
-        })
-        if win:
+            "traffic_source": src,
+            "trend": "stable",
+        }
+        decision = _winner_loop_decision(perf_row)
+        perf_row["status"] = decision["status"]
+        perf_row["decision_reason"] = decision["reason"]
+        perf_row["recommended_actions"] = decision["actions"]
+        perf_row["is_winner"] = decision["status"] == "WINNER"
+        performance.append(perf_row)
+
+        product_ref = {
+            "product_id": product_id,
+            "source": src,
+            "content_id": cid,
+            "reason": decision["reason"],
+            "metrics": {
+                "impressions": impressions,
+                "clicks": clicks,
+                "ctr": round(ctr, 4),
+                "conversions": sales,
+                "conversion_rate": round(conv, 4),
+                "revenue": round(revenue, 2),
+                "traffic_source": src,
+            },
+        }
+        if decision["status"] == "WINNER":
             winners.append(f"{src}:{cid}")
+            scaling_actions.append({"product_id": product_id, "source": src, "content_id": cid, "actions": decision["actions"]})
+        elif decision["status"] == "DEAD":
+            dead_products.append(product_ref)
+            killing_actions.append({"product_id": product_id, "source": src, "content_id": cid, "actions": decision["actions"]})
+        else:
+            test_products.append(product_ref)
     performance.sort(key=lambda x: (x["revenue"], x["clicks"]), reverse=True)
-    return {"performance": performance, "winners": winners}
+    winner_products = [
+        {
+            "product_id": product_id,
+            "source": row["source"],
+            "content_id": row["content_id"],
+            "reason": row["decision_reason"],
+            "metrics": {
+                "impressions": row["impressions"],
+                "clicks": row["clicks"],
+                "ctr": row["ctr"],
+                "conversions": row["conversions"],
+                "conversion_rate": row["conversion_rate"],
+                "revenue": row["revenue"],
+                "traffic_source": row["traffic_source"],
+            },
+        }
+        for row in performance if row["status"] == "WINNER"
+    ]
+    ranked = sorted(performance, key=lambda x: (x["status"] == "WINNER", x["revenue"], x["conversions"], x["ctr"]), reverse=True)
+    top = ranked[0] if ranked else None
+    winner_loop = {
+        "winner_products": winner_products,
+        "test_products": test_products,
+        "dead_products": dead_products,
+        "scaling_actions": scaling_actions,
+        "killing_actions": killing_actions,
+        "top_opportunity": {
+            "product_id": product_id if top else "",
+            "reason": top["decision_reason"] if top else "",
+            "next_action": (top["recommended_actions"][0] if top and top["recommended_actions"] else ""),
+        },
+    }
+    return {"performance": performance, "winners": winners, "winner_loop": winner_loop}
 
 
 @api.post("/track/click")
@@ -1553,6 +1671,24 @@ async def track_click(req: ClickEventReq, user=Depends(current_user)):
         "source": req.source,
         "content_id": req.content_id,
         "event_type": "click",
+        "value": 0.0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True}
+
+
+@api.post("/track/impression")
+async def track_impression(req: ClickEventReq, user=Depends(current_user)):
+    product = await db.products.find_one({"id": req.product_id, "user_id": user["id"]}, {"_id": 0, "id": 1})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    await db.tracking_events.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "product_id": req.product_id,
+        "source": req.source,
+        "content_id": req.content_id,
+        "event_type": "impression",
         "value": 0.0,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
@@ -1622,10 +1758,12 @@ async def analytics(product_id: str, user=Depends(current_user)):
     perf = await _compute_performance(product_id, user["id"])
 
     totals = {
+        "impressions": sum(p["impressions"] for p in perf["performance"]),
         "clicks": sum(p["clicks"] for p in perf["performance"]),
         "sales": sum(p["sales"] for p in perf["performance"]),
         "revenue": round(sum(p["revenue"] for p in perf["performance"]), 2),
     }
+    totals["ctr"] = round((totals["clicks"] / totals["impressions"]) if totals["impressions"] else 0.0, 4)
     totals["conversion_rate"] = round(
         (totals["sales"] / totals["clicks"]) if totals["clicks"] else 0.0, 4
     )
@@ -1636,10 +1774,12 @@ async def analytics(product_id: str, user=Depends(current_user)):
         "totals": totals,
         "performance": perf["performance"],
         "winners": perf["winners"],
+        "winner_loop": perf["winner_loop"],
         "rules": {
-            "min_clicks": WINNER_MIN_CLICKS,
+            "winner_min_ctr": WINNER_MIN_CTR,
             "min_conversion": WINNER_MIN_CONVERSION,
-            "min_revenue": WINNER_MIN_REVENUE,
+            "dead_max_ctr": DEAD_MAX_CTR,
+            "dead_no_conversion_impressions": DEAD_NO_CONVERSION_IMPRESSIONS,
         },
     }
 

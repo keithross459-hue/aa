@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../api";
-import { Loader2, Flame, TrendingUp, MousePointerClick, DollarSign, Target } from "lucide-react";
+import { Loader2, Flame, TrendingUp, MousePointerClick, DollarSign, Target, Eye, CircleSlash } from "lucide-react";
 
 export default function AnalyticsPanel({ productId }) {
   const [data, setData] = useState(null);
@@ -21,55 +21,67 @@ export default function AnalyticsPanel({ productId }) {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 10000); // poll every 10s
+    const t = setInterval(load, 10000);
     return () => clearInterval(t);
   }, [load]);
 
   if (loading && !data) {
     return (
       <div className="p-10 flex items-center gap-3 text-zinc-400 font-mono text-xs uppercase tracking-widest">
-        <Loader2 className="w-4 h-4 animate-spin" /> Loading analytics…
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading analytics...
       </div>
     );
   }
-  if (err) {
-    return <div className="p-6 text-[#FF3333] font-mono text-xs uppercase tracking-widest">{err}</div>;
-  }
+  if (err) return <div className="p-6 text-[#FF3333] font-mono text-xs uppercase tracking-widest">{err}</div>;
   if (!data) return null;
 
   const totals = data.totals || {};
   const rules = data.rules || {};
   const rows = data.performance || [];
+  const loop = data.winner_loop || {};
+  const top = loop.top_opportunity || {};
 
   return (
     <div className="border border-zinc-800 bg-zinc-950" data-testid="analytics-panel">
-      <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
+      <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between gap-4">
         <div className="font-mono text-xs uppercase tracking-widest flex items-center gap-2">
           <TrendingUp className="w-4 h-4 text-[#FFD600]" /> Performance & winners
         </div>
-        <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
-          Winner rule: {rules.min_clicks}+ clicks @ {(rules.min_conversion * 100).toFixed(0)}%+ conv · OR · $
-          {rules.min_revenue}+ revenue
+        <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500 text-right">
+          Winner rule: CTR &gt; {((rules.winner_min_ctr || 0) * 100).toFixed(0)}% and conv &gt; {((rules.min_conversion || 0) * 100).toFixed(0)}% with a purchase
         </div>
       </div>
 
-      {/* Totals */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-zinc-800">
-        <Tile icon={<MousePointerClick />} label="Total clicks" value={totals.clicks || 0} color="#FFD600" />
-        <Tile icon={<Target />} label="Total sales" value={totals.sales || 0} color="#FF3333" />
+      <div className="border-b border-zinc-800 bg-black px-6 py-4">
+        <div className="mb-1 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">Winner Loop Controller</div>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto]">
+          <div className="text-sm text-zinc-300">
+            {top.product_id ? `${top.reason} Next: ${top.next_action}` : "No opportunity yet. Waiting for real impressions, clicks, and conversion data."}
+          </div>
+          <div className="flex flex-wrap gap-2 font-mono text-[10px] uppercase tracking-widest">
+            <span className="bg-[#FFD600] px-2 py-1 text-black">{(loop.winner_products || []).length} scale</span>
+            <span className="border border-zinc-700 px-2 py-1 text-zinc-300">{(loop.test_products || []).length} learn</span>
+            <span className="bg-[#FF3333] px-2 py-1 text-white">{(loop.dead_products || []).length} kill</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-zinc-800">
+        <Tile icon={<Eye />} label="Impressions" value={totals.impressions || 0} color="#FFD600" />
+        <Tile icon={<MousePointerClick />} label="Clicks" value={totals.clicks || 0} color="#FFD600" />
+        <Tile icon={<Target />} label="Sales" value={totals.sales || 0} color="#FF3333" />
         <Tile icon={<DollarSign />} label="Revenue" value={`$${totals.revenue || 0}`} color="#FFD600" />
         <Tile
           icon={<TrendingUp />}
-          label="Conversion"
-          value={`${((totals.conversion_rate || 0) * 100).toFixed(2)}%`}
+          label="CTR / Conv"
+          value={`${((totals.ctr || 0) * 100).toFixed(2)}% / ${((totals.conversion_rate || 0) * 100).toFixed(2)}%`}
           color="#FF3333"
         />
       </div>
 
-      {/* Rows */}
       {rows.length === 0 ? (
         <div className="p-10 text-center text-zinc-500 font-mono text-xs uppercase tracking-widest" data-testid="analytics-empty">
-          No clicks yet. Drop your /track/go links into TikTok bios to start tracking.
+          No real tracking data yet. Use live product links to collect impressions, clicks, and purchases.
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -77,8 +89,10 @@ export default function AnalyticsPanel({ productId }) {
             <thead>
               <tr className="border-b border-zinc-800 text-left">
                 <Th>Content</Th>
+                <Th right>Impr.</Th>
                 <Th right>Clicks</Th>
                 <Th right>Sales</Th>
+                <Th right>CTR</Th>
                 <Th right>Revenue</Th>
                 <Th right>Conv %</Th>
                 <Th right>Status</Th>
@@ -88,28 +102,32 @@ export default function AnalyticsPanel({ productId }) {
               {rows.map((r, i) => (
                 <tr
                   key={`${r.source}-${r.content_id}`}
-                  className={`border-b border-zinc-900 ${r.is_winner ? "bg-[#FFD600]/5" : ""}`}
+                  className={`border-b border-zinc-900 ${r.status === "WINNER" ? "bg-[#FFD600]/5" : ""}`}
                   data-testid={`analytics-row-${i}`}
                 >
                   <Td>
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500 w-16">
-                        {r.source}
-                      </span>
+                      <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500 w-16">{r.source}</span>
                       <span className="font-mono text-sm">{r.content_id}</span>
                     </div>
                   </Td>
+                  <Td right mono>{r.impressions}</Td>
                   <Td right mono>{r.clicks}</Td>
                   <Td right mono>{r.sales}</Td>
+                  <Td right mono>{((r.ctr || 0) * 100).toFixed(2)}%</Td>
                   <Td right mono className="text-[#FFD600]">${r.revenue}</Td>
-                  <Td right mono>{(r.conversion_rate * 100).toFixed(2)}%</Td>
+                  <Td right mono>{((r.conversion_rate || 0) * 100).toFixed(2)}%</Td>
                   <Td right>
-                    {r.is_winner ? (
+                    {r.status === "WINNER" ? (
                       <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest bg-[#FFD600] text-black px-2 py-0.5">
-                        <Flame className="w-3 h-3" /> Winner
+                        <Flame className="w-3 h-3" /> Scale
+                      </span>
+                    ) : r.status === "DEAD" ? (
+                      <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest bg-[#FF3333] text-white px-2 py-0.5">
+                        <CircleSlash className="w-3 h-3" /> Kill
                       </span>
                     ) : (
-                      <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">—</span>
+                      <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">Learn</span>
                     )}
                   </Td>
                 </tr>

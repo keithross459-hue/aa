@@ -7,7 +7,7 @@ Covers:
 - GET  /api/track/go (PUBLIC, 302 with UTMs, 400 invalid source, 404 unknown product)
 - GET  /api/analytics/{product_id} (auth, totals, performance, winners, rules)
 - Winner rule #1 (conversion >= 2% with >=20 clicks)
-- Winner rule #2 (revenue >= $50)
+- Strict winner rule requires CTR > 3%, conversion > 2%, and a real purchase
 - Non-winner case
 - /api/tiktok/export and /api/meta/export now return content_id + tracking_url
 """
@@ -154,8 +154,8 @@ def test_05_track_sale_owner_ok_increments_revenue():
     j = r.json()
     assert j["ok"] is True
     assert isinstance(j.get("winners"), list)
-    # Winner rule #2 — single $55 sale should mark this content as winner
-    assert "meta:meta_ad_2" in j["winners"]
+    # Revenue alone is not enough to mark this content as a winner.
+    assert "meta:meta_ad_2" not in j["winners"]
 
     # Verify product doc stamped with revenue/sales_count/winners
     p = requests.get(f"{API}/products/{state['pid']}", headers=H(state["token_a"])).json()
@@ -165,7 +165,7 @@ def test_05_track_sale_owner_ok_increments_revenue():
     mc.close()
     assert raw.get("revenue") == 55.0, raw.get("revenue")
     assert raw.get("sales_count") == 1, raw.get("sales_count")
-    assert "meta:meta_ad_2" in raw.get("winners", [])
+    assert "meta:meta_ad_2" not in raw.get("winners", [])
 
 
 def test_06_track_sale_not_owner_404():
@@ -219,6 +219,13 @@ def test_09_track_go_unknown_product_404():
 # -------------- winner rules: build event volumes --------------
 def test_10_winner_rule_conversion():
     """20 clicks + 1 sale @ $19 on tiktok_post_1 => winner via conversion (1/20=5% >= 2%)."""
+    for _ in range(500):
+        r = requests.post(
+            f"{API}/track/impression",
+            headers=H(state["token_a"]),
+            json={"product_id": state["pid"], "source": "tiktok", "content_id": "tiktok_post_1"},
+        )
+        assert r.status_code == 200
     # We already have 1 click on tiktok_post_1 from test_02. Add 19 more to reach 20.
     for _ in range(19):
         r = requests.post(
@@ -236,11 +243,18 @@ def test_10_winner_rule_conversion():
     assert r.status_code == 200, r.text
     winners = r.json()["winners"]
     assert "tiktok:tiktok_post_1" in winners
-    assert "meta:meta_ad_2" in winners  # still there from before
+    assert "meta:meta_ad_2" not in winners
 
 
 def test_11_non_winner_meta_ad_1():
     """5 clicks 0 sales on meta_ad_1 => not winner."""
+    for _ in range(300):
+        r = requests.post(
+            f"{API}/track/impression",
+            headers=H(state["token_a"]),
+            json={"product_id": state["pid"], "source": "meta", "content_id": "meta_ad_1"},
+        )
+        assert r.status_code == 200
     for _ in range(5):
         r = requests.post(
             f"{API}/track/click",
@@ -271,26 +285,36 @@ def test_14_analytics_full_payload():
     t = j["totals"]
     # 20 tiktok_post_1 + 5 meta_ad_1 + 1 tiktok_post_3 (from test_07 /track/go) = 26 clicks
     assert t["clicks"] == 26, t
+    assert t["impressions"] == 800, t
     assert t["sales"] == 2, t
     assert abs(t["revenue"] - 74.0) < 0.01
     assert t["conversion_rate"] == round(2 / 26, 4)
+    assert t["ctr"] == round(26 / 800, 4)
     # rules
-    assert j["rules"] == {"min_clicks": 20, "min_conversion": 0.02, "min_revenue": 50}
+    assert j["rules"] == {
+        "winner_min_ctr": 0.03,
+        "min_conversion": 0.02,
+        "dead_max_ctr": 0.01,
+        "dead_no_conversion_impressions": 200,
+    }
     # performance rows
     by = {(p["source"], p["content_id"]): p for p in j["performance"]}
     tt1 = by[("tiktok", "tiktok_post_1")]
-    assert tt1["clicks"] == 20 and tt1["sales"] == 1
+    assert tt1["impressions"] == 500 and tt1["clicks"] == 20 and tt1["sales"] == 1
     assert tt1["is_winner"] is True
     assert abs(tt1["conversion_rate"] - 0.05) < 0.001
+    assert abs(tt1["ctr"] - 0.04) < 0.001
     ma2 = by[("meta", "meta_ad_2")]
     assert ma2["clicks"] == 0 and ma2["sales"] == 1 and ma2["revenue"] == 55.0
-    assert ma2["is_winner"] is True
+    assert ma2["is_winner"] is False
     ma1 = by[("meta", "meta_ad_1")]
-    assert ma1["clicks"] == 5 and ma1["sales"] == 0
+    assert ma1["impressions"] == 300 and ma1["clicks"] == 5 and ma1["sales"] == 0
     assert ma1["is_winner"] is False
+    assert ma1["status"] == "DEAD"
+    assert "winner_loop" in j
     # winners list
     assert "tiktok:tiktok_post_1" in j["winners"]
-    assert "meta:meta_ad_2" in j["winners"]
+    assert "meta:meta_ad_2" not in j["winners"]
     assert "meta:meta_ad_1" not in j["winners"]
 
 
