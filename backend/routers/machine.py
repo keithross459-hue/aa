@@ -95,32 +95,12 @@ def _campaign_assets(title: str, idea: str, audience: str) -> Dict[str, List[Dic
     }
 
 
-async def _record_launches(user_id: str, product: dict) -> List[dict]:
-    now = datetime.now(timezone.utc).isoformat()
-    stores = ["gumroad", "stan_store", "whop", "payhip", "etsy_digital", "stripe_link", "shopify_digital"]
-    listings = []
-    for store in stores:
-        live = store in {"etsy_digital", "stripe_link", "shopify_digital"}
-        listing = {
-            "id": str(uuid.uuid4()),
-            "user_id": user_id,
-            "product_id": product["id"],
-            "store_id": store,
-            "store_name": store.replace("_", " ").title(),
-            "listing_url": f"https://launch.fiilthy.ai/{_slug(product['title'])}/{store}",
-            "status": "SIMULATED" if live else "READY_FOR_CREDENTIALS",
-            "listing_title": product["title"],
-            "listing_description": product["description"],
-            "launched_at": now,
-            "real": False,
-        }
-        listings.append(listing)
-    await db.listings.insert_many([l.copy() for l in listings])
-    return listings
-
-
 @router.post("/run")
 async def run_machine(req: MachineReq, user=Depends(current_user)):
+    raise HTTPException(
+        409,
+        "Auto Mode is disabled in real-only mode. Use the product builder, then publish through configured real store integrations.",
+    )
     now = datetime.now(timezone.utc).isoformat()
     audience = req.audience or "ambitious creators"
     brand = _brand(req.idea)

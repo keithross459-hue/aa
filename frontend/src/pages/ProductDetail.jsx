@@ -128,9 +128,16 @@ export default function ProductDetail() {
     setLaunchBusy(true);
     setLaunchMessage("");
     try {
-      await api.post("/launch", { product_id: id });
+      const r = await api.post("/launch", { product_id: id });
       await load();
-      setLaunchMessage("Your product is now live and ready to make sales.");
+      const liveCount = (r.data?.listings || []).filter((l) => l.status === "LIVE").length;
+      setLaunchMessage(
+        liveCount > 0
+          ? `Published ${liveCount} real store listing${liveCount === 1 ? "" : "s"}.`
+          : "No real listings were published. Add store credentials in Settings, then try again."
+      );
+    } catch (ex) {
+      setLaunchMessage(ex?.response?.data?.detail || "Real publish failed. Check store credentials and try again.");
     } finally {
       setLaunchBusy(false);
     }
@@ -422,7 +429,7 @@ function StoreGrid({ stores, listings }) {
           <div key={s.id} className="bg-zinc-950 p-5" data-testid={`store-${s.id}`}>
             <div className="mb-2 flex items-center justify-between gap-3">
               <div className="font-heading text-2xl uppercase">{s.name}</div>
-              <span className={`whitespace-nowrap px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest ${status === "LIVE" ? "bg-[#FFD600] text-black" : status === "SIMULATED" ? "bg-zinc-700 text-zinc-200" : status === "NOT_CONFIGURED" ? "border border-[#FFD600] bg-zinc-800 text-[#FFD600]" : status === "FAILED" ? "bg-[#FF3333] text-white" : "bg-zinc-800 text-zinc-400"}`}>
+              <span className={`whitespace-nowrap px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest ${status === "LIVE" ? "bg-[#FFD600] text-black" : status === "NOT_CONFIGURED" ? "border border-[#FFD600] bg-zinc-800 text-[#FFD600]" : status === "FAILED" ? "bg-[#FF3333] text-white" : "bg-zinc-800 text-zinc-400"}`}>
                 {status || "READY"}
               </span>
             </div>

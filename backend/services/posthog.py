@@ -29,7 +29,7 @@ async def capture(
     properties: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     if not configured():
-        return {"ok": False, "mocked": True, "error": "posthog_not_configured"}
+        return {"ok": False, "skipped": True, "error": "posthog_not_configured"}
 
     payload = {
         "api_key": POSTHOG_API_KEY,

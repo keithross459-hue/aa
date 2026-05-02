@@ -80,7 +80,7 @@ async def executive_dashboard() -> Dict[str, Any]:
 
     products = await db.products.find({}, {"_id": 0}).to_list(10000)
     launches = await db.listings.find({}, {"_id": 0}).to_list(10000)
-    successful_launches = [l for l in launches if l.get("status") in ("LIVE", "SIMULATED")]
+    successful_launches = [l for l in launches if l.get("status") == "LIVE" and l.get("real") is True]
     launch_success_rate = round(len(successful_launches) / max(len(launches), 1), 4)
     product_user_ids = {p.get("user_id") for p in products if p.get("user_id")}
     onboarding_completion = round(len([u for u in users if u.get("id") in product_user_ids]) / max(len(users), 1), 4)

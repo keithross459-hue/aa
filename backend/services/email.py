@@ -228,8 +228,8 @@ async def send_email(
     html = tpl["render"](data)
 
     if not SENDGRID_API_KEY:
-        log.warning(f"[MOCKED-EMAIL] to={to} tpl={template} subj={subject}")
-        return {"ok": False, "error": "sendgrid_not_configured", "mocked": True}
+        log.warning(f"[EMAIL-SKIPPED] to={to} tpl={template} subj={subject}")
+        return {"ok": False, "error": "sendgrid_not_configured", "skipped": True}
 
     try:
         from sendgrid import SendGridAPIClient
@@ -259,8 +259,8 @@ async def send_email(
 async def send_raw(to: str, subject: str, html: str) -> Dict[str, Any]:
     """Send a raw HTML email (used by admin broadcast)."""
     if not SENDGRID_API_KEY:
-        log.warning(f"[MOCKED-EMAIL] raw to={to} subj={subject}")
-        return {"ok": False, "error": "sendgrid_not_configured", "mocked": True}
+        log.warning(f"[EMAIL-SKIPPED] raw to={to} subj={subject}")
+        return {"ok": False, "error": "sendgrid_not_configured", "skipped": True}
     try:
         from sendgrid import SendGridAPIClient
         from sendgrid.helpers.mail import Mail, Email, To, Content

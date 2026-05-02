@@ -25,7 +25,6 @@ export default function LaunchesList() {
                   <span
                     className={`font-mono text-[10px] uppercase tracking-widest px-2 py-0.5 ${
                       l.status === "LIVE" ? "bg-[#FFD600] text-black" :
-                      l.status === "SIMULATED" ? "bg-zinc-700 text-zinc-200" :
                       l.status === "NOT_CONFIGURED" ? "bg-zinc-800 text-zinc-400 border border-[#FFD600]" :
                       "bg-[#FF3333] text-white"
                     }`}
@@ -38,6 +37,10 @@ export default function LaunchesList() {
                 {l.status === "NOT_CONFIGURED" ? (
                   <div className="font-mono text-xs text-[#FFD600]">
                     {l.error || `Add your ${l.store_name} credentials in Settings to publish for real.`}
+                  </div>
+                ) : l.status === "FAILED" ? (
+                  <div className="font-mono text-xs text-[#FF3333]">
+                    {l.error || "Real publish failed."}
                   </div>
                 ) : (
                   <a href={l.listing_url} target="_blank" rel="noreferrer" className="font-mono text-xs text-zinc-400 hover:text-[#FFD600] flex items-center gap-1 break-all">

@@ -77,9 +77,6 @@ STORES = [
     {"id": "stan_store", "name": "Stan Store", "real": True},
     {"id": "whop", "name": "Whop", "real": True},
     {"id": "payhip", "name": "Payhip", "real": True},
-    {"id": "etsy_digital", "name": "Etsy Digital", "real": False},
-    {"id": "stripe_link", "name": "Stripe Payment Link", "real": False},
-    {"id": "shopify_digital", "name": "Shopify Digital", "real": False},
 ]
 AD_PLATFORMS = ["TikTok Ads", "Meta Ads", "YouTube Ads", "Twitter Ads", "Pinterest Ads"]
 
@@ -311,100 +308,6 @@ def _safe_json_parse(text: str):
         except Exception:
             pass
     raise HTTPException(500, "AI returned malformed output. Please retry.")
-
-
-def _price_from_hint(price_hint: Optional[str]) -> float:
-    if not price_hint:
-        return 27.0
-    import re
-    nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", price_hint)]
-    if not nums:
-        return 27.0
-    return round(sum(nums) / len(nums), 2)
-
-
-def _fallback_product_data(req: GenerateProductReq) -> Dict[str, Any]:
-    niche = " ".join(req.niche.strip().split())
-    product_type = (req.product_type or "ebook").strip().lower()
-    audience = (req.audience or f"beginners who want better results with {niche}").strip()
-    price = _price_from_hint(req.price_hint)
-    title_niche = niche.title()
-
-    return {
-        "title": f"{title_niche} Launch Kit",
-        "tagline": f"A practical {product_type} for turning {niche} into a clear, sellable result.",
-        "description": (
-            f"This {product_type} gives {audience} a simple path to improve {niche} without guesswork. "
-            "It packages the core decisions, checklists, and action steps into one focused product buyers can use immediately."
-        ),
-        "target_audience": audience,
-        "price": price,
-        "bullet_features": [
-            "Fast-start checklist for the first useful result",
-            "Step-by-step setup flow with clear decisions",
-            "Common mistakes to avoid before launch",
-            "Simple quality-control scorecard",
-            "Promotion angles buyers can act on immediately",
-            "Next-step plan for improving after first feedback",
-        ],
-        "outline": [
-            "The Outcome This Product Delivers",
-            "Who This Is For",
-            "The Fast-Start Setup",
-            "Quality Control Checklist",
-            "Build The First Version",
-            "Launch With A Simple Offer",
-            "Promote For The First Click",
-            "Read The Signals",
-            "Improve And Relaunch",
-        ],
-        "sales_copy": (
-            f"Stop guessing your way through {niche}. The {title_niche} Launch Kit gives you a clean, direct path "
-            "from idea to action with checklists, launch steps, and simple quality checks you can use today. "
-            f"It is built for {audience}, so every section focuses on clarity, speed, and practical execution. "
-            "Use it to make the first version, promote it, read the response, and improve without getting stuck."
-        ),
-        "cover_concept": (
-            f"Bold black-and-yellow digital cover with the title '{title_niche} Launch Kit', sharp grid lines, "
-            "a launch checklist motif, and a clean premium business-builder feel."
-        ),
-    }
-
-
-def _fallback_campaign_data(product: Dict[str, Any], angle: Optional[str] = None) -> Dict[str, Any]:
-    title = str(product.get("title") or "this product")
-    audience = str(product.get("target_audience") or "buyers who want a faster result")
-    tagline = str(product.get("tagline") or product.get("description") or "a simple way to get the first result")
-    chosen_angle = (angle or f"Fast first result for {audience}")[:300]
-    base_tags = ["digitalproduct", "launch", "creatorbusiness", "sidehustle", "firstsale", "onlinebusiness", "productivity", "buildinpublic"]
-    platform_hooks = {
-        "TikTok Ads": "Stop guessing. Use this first.",
-        "Meta Ads": f"{title} turns the messy first step into a simple plan.",
-        "YouTube Ads": f"If you are stuck with {title}, start here.",
-        "Twitter Ads": "The fastest path is a clear checklist.",
-        "Pinterest Ads": f"Save this {title} launch plan.",
-    }
-    variants = []
-    for platform in AD_PLATFORMS:
-        hook = platform_hooks.get(platform, title)
-        variants.append({
-            "platform": platform,
-            "hook": hook,
-            "script": (
-                "0:00 - Call out the stuck point.\n"
-                f"0:05 - Show {title} and the core promise: {tagline}.\n"
-                "0:15 - Highlight the checklist, steps, and immediate action path.\n"
-                "0:25 - Tell the viewer to grab it now and use it today."
-            ),
-            "cta": "Grab the product and take the first step today.",
-            "hashtags": base_tags,
-            "targeting": f"{audience}; broad interests around digital products, self-improvement, and creator tools.",
-        })
-    return {
-        "angle": chosen_angle,
-        "daily_budget_suggestion": 25.0,
-        "variants": variants,
-    }
 
 
 def _env_provider_credentials(provider: str) -> Dict[str, str]:
@@ -799,10 +702,7 @@ Return JSON with EXACT keys:
         raw = await llm_json(sys_msg, prompt, session_id=f"product-{user['id']}-{uuid.uuid4().hex[:8]}")
         data = _safe_json_parse(raw)
     except HTTPException as ex:
-        if ex.status_code != 503:
-            raise
-        log.warning("LLM unavailable; using fallback product builder for user=%s", user["id"])
-        data = _fallback_product_data(req)
+        raise ex
 
     pid = str(uuid.uuid4())
     product = {
@@ -987,13 +887,10 @@ Return JSON with EXACT keys:
         raw = await llm_json(sys_msg, prompt, session_id=f"camp-{user['id']}-{uuid.uuid4().hex[:8]}")
         data = _safe_json_parse(raw)
     except HTTPException as ex:
-        if ex.status_code != 503:
-            raise
-        log.warning("LLM unavailable; using fallback campaign builder for user=%s product=%s", user["id"], product["id"])
-        data = _fallback_campaign_data(product, req.angle)
+        raise ex
     except Exception as ex:
-        log.warning("Campaign AI parse failed; using fallback campaign builder for user=%s product=%s error=%s", user["id"], product["id"], ex)
-        data = _fallback_campaign_data(product, req.angle)
+        log.warning("Campaign AI parse failed for user=%s product=%s error=%s", user["id"], product["id"], ex)
+        raise HTTPException(500, "AI returned malformed campaign output. Please retry.")
 
     variants_data = data.get("variants") or []
     variants: List[AdVariant] = []
@@ -1012,18 +909,7 @@ Return JSON with EXACT keys:
         except Exception:
             continue
     if not variants:
-        data = _fallback_campaign_data(product, req.angle)
-        variants = [
-            AdVariant(
-                platform=str(v.get("platform", "TikTok Ads")),
-                hook=str(v.get("hook", ""))[:300],
-                script=str(v.get("script", ""))[:2000],
-                cta=str(v.get("cta", ""))[:200],
-                hashtags=[str(h).lstrip("#") for h in (v.get("hashtags") or [])][:12],
-                targeting=str(v.get("targeting", ""))[:400],
-            )
-            for v in data.get("variants", [])
-        ]
+        raise HTTPException(500, "AI returned no usable campaign variants. Please retry.")
 
     cid = str(uuid.uuid4())
     camp_doc = {
@@ -1093,8 +979,8 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
         listing_description = product["description"][:500]
         real = False
         error = None
-        status_str = "SIMULATED"
-        url = f"https://{sid.replace('_', '-')}.fiilthy.ai/{slug}-{product['id'][:6]}"
+        status_str = "NOT_CONFIGURED"
+        url = ""
 
         price_cents = int(round(float(product.get("price", 27.0)) * 100))
         full_desc = f"{product.get('sales_copy', product['description'])}\n\n---\n{chr(10).join(product.get('bullet_features', []))}"
@@ -1113,7 +999,7 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
                     status_str = "LIVE"
                 else:
                     error = str(res.get("error", "gumroad_failed"))[:200]
-                    status_str = "SIMULATED"
+                    status_str = "FAILED"
             elif sid == "stan_store" and stan_c.get("access_token"):
                 res = await stan_create_product(
                     stan_c["access_token"], product["title"], price_cents, full_desc,
@@ -1124,7 +1010,7 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
                     status_str = "LIVE"
                 else:
                     error = str(res.get("error", "stan_failed"))[:200]
-                    status_str = "SIMULATED"
+                    status_str = "FAILED"
             elif sid == "whop" and whop_c.get("api_key"):
                 res = await whop_create_product(
                     whop_c["api_key"], product["title"], price_cents, full_desc,
@@ -1135,7 +1021,7 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
                     status_str = "LIVE"
                 else:
                     error = str(res.get("error", "whop_failed"))[:200]
-                    status_str = "SIMULATED"
+                    status_str = "FAILED"
             elif sid == "payhip" and payhip_c.get("api_key"):
                 res = await payhip_create_product(
                     payhip_c["api_key"], product["title"], price_cents, full_desc,
@@ -1146,13 +1032,12 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
                     status_str = "LIVE"
                 else:
                     error = str(res.get("error", "payhip_failed"))[:200]
-                    status_str = "SIMULATED"
+                    status_str = "FAILED"
             elif sid in ("gumroad", "stan_store", "whop", "payhip"):
-                status_str = "SIMULATED"
                 error = f"Add your {store['name']} credentials in Settings or backend env to publish for real."
         except Exception as ex:
             error = f"exception: {ex}"[:200]
-            status_str = "SIMULATED"
+            status_str = "FAILED"
 
         listing = StoreListing(
             store_id=sid,
@@ -1175,7 +1060,7 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
 
     if listing_docs:
         await db.listings.insert_many(listing_docs)
-    live_ids = [lst.store_id for lst in listings if lst.status in ("LIVE", "SIMULATED")]
+    live_ids = [lst.store_id for lst in listings if lst.status == "LIVE"]
     if live_ids:
         await db.products.update_one(
             {"id": product["id"]},
@@ -1205,9 +1090,7 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
     existing_meta = await db.meta_launches.find_one(
         {"product_id": product["id"], "user_id": user["id"]}, {"_id": 0}
     )
-    product_url = next((lst.listing_url for lst in listings if lst.real), None) or (
-        listings[0].listing_url if listings else None
-    )
+    product_url = next((lst.listing_url for lst in listings if lst.real), None)
     if meta_token and meta_ad_account and product_url and not existing_meta:
         try:
             camp_doc = await db.campaigns.find_one(
@@ -1224,14 +1107,21 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
 
             headlines = [meta_variant["hook"]] if meta_variant else [product["title"]]
             primary_texts = [meta_variant["script"]] if meta_variant else [product["sales_copy"]]
-            image_urls = []
+            image_urls = [
+                url for url in product.get("image_urls", [])
+                if isinstance(url, str) and url.startswith(("http://", "https://"))
+            ][:3]
 
             while len(headlines) < 3:
                 headlines.append(product["title"])
             while len(primary_texts) < 3:
                 primary_texts.append(product["tagline"] or product["description"])
+
+            if not image_urls:
+                log.info("Meta auto-launch skipped for product %s: no real image URLs available", product["id"])
+                return LaunchResult(product_id=product["id"], listings=listings)
             while len(image_urls) < 3:
-                image_urls.append("https://placehold.co/1200x630/09090B/FFD600/png?text=FiiLTHY")
+                image_urls.append(image_urls[-1])
 
             camp_res = await meta_ads.create_campaign(
                 meta_ad_account, meta_token, name=f"FiiLTHY — {product['title'][:80]}"
@@ -1396,7 +1286,9 @@ async def meta_export(product_id: str, user=Depends(current_user)):
         {"product_id": product_id, "user_id": user["id"]}, {"_id": 0}
     ).to_list(50)
     real_listing = next((l for l in listings_rows if l.get("real")), None)
-    product_url = (real_listing or (listings_rows[0] if listings_rows else {})).get("listing_url", "")
+    product_url = (real_listing or {}).get("listing_url", "")
+    if not product_url:
+        raise HTTPException(409, "A real store listing is required before exporting Meta ads.")
 
     camp = await db.campaigns.find_one(
         {"product_id": product_id, "user_id": user["id"]},
@@ -1421,9 +1313,14 @@ async def meta_export(product_id: str, user=Depends(current_user)):
         headlines.append(product["title"])
     while len(primary_texts) < 3:
         primary_texts.append(product.get("sales_copy") or product["description"])
-    placeholder_img = "https://placehold.co/1200x630/09090B/FFD600/png?text=FiiLTHY"
+    image_urls = [
+        url for url in product.get("image_urls", [])
+        if isinstance(url, str) and url.startswith(("http://", "https://"))
+    ][:3]
+    if not image_urls:
+        raise HTTPException(409, "Add a real product image before exporting Meta ads.")
     while len(image_urls) < 3:
-        image_urls.append(placeholder_img)
+        image_urls.append(image_urls[-1])
 
     creatives = []
     backend_base = os.environ.get("BACKEND_URL", "")

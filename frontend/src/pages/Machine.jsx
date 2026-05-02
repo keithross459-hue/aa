@@ -7,13 +7,20 @@ export default function Machine() {
   const [audience, setAudience] = useState("");
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
   const run = async () => {
     if (!idea.trim()) return;
     setBusy(true);
-    const r = await api.post("/machine/run", { idea, audience: audience || undefined, product_type: "ebook", launch_stores: true, activate_referrals: true });
-    setResult(r.data);
-    setBusy(false);
+    setErr("");
+    try {
+      const r = await api.post("/machine/run", { idea, audience: audience || undefined, product_type: "ebook", launch_stores: true, activate_referrals: true });
+      setResult(r.data);
+    } catch (ex) {
+      setErr(ex?.response?.data?.detail || "Auto Mode is disabled in real-only mode.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const downloadZip = async () => {
@@ -31,6 +38,7 @@ export default function Machine() {
     <div className="p-8 lg:p-12" data-testid="machine-page">
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-[#FFD600] mb-2">One click business machine</div>
       <h1 className="font-heading text-5xl lg:text-6xl uppercase mb-10">Idea to launch</h1>
+      {err && <div className="mb-6 border border-[#FF3333] bg-[#FF3333]/10 px-4 py-3 font-mono text-xs uppercase tracking-widest text-[#FF3333]">{err}</div>}
 
       <section className="border border-zinc-800 bg-zinc-950 p-6 mb-10">
         <div className="grid lg:grid-cols-[1fr_280px_auto] gap-3">

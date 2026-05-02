@@ -44,36 +44,6 @@ def _safe_json_parse(text: str):
     raise ValueError("TikTok AI returned malformed output")
 
 
-def _fallback_posts(product: Dict[str, Any], count: int) -> List[Dict[str, Any]]:
-    title = str(product.get("title") or "this product")
-    audience = str(product.get("target_audience") or "people trying to get a better result")
-    price = product.get("price") or 27
-    angles = [
-        ("Stop guessing. Start with this.", "If you are trying to move faster, this gives you the checklist and first steps so you can take action today."),
-        ("I made this for people stuck at step one.", f"This is for {audience}. It turns the messy part into a simple launch path."),
-        ("Most people overcomplicate this.", "You do not need a giant plan. You need the first useful version, a clean offer, and a way to read the response."),
-        ("This is the shortcut I wish I had.", f"The {title} gives you the setup, checklist, and launch moves in one place."),
-        ("If you want the first result, start here.", "Use the product, follow the checklist, promote it once, and improve from real signals."),
-    ]
-    posts: List[Dict[str, Any]] = []
-    for i, (hook, body) in enumerate(angles[:count]):
-        posts.append({
-            "id": str(uuid.uuid4()),
-            "hook": hook,
-            "script": (
-                f"{hook}\n\n"
-                f"{body}\n\n"
-                f"I put it into a simple digital product called {title}. "
-                f"It is ${price}, built to help you take the next step without getting stuck.\n\n"
-                "Grab it from the link and start now."
-            ),
-            "caption": f"{title} is live. Start here, take action, then improve from real signals.",
-            "hashtags": ["digitalproduct", "launch", "creatorbusiness", "sidehustle", "productivity", "firstsale", "onlinebusiness", "buildinpublic"],
-            "visual_idea": "Screen recording of the product page with checklist-style text overlays and a clear link CTA.",
-        })
-    return posts
-
-
 async def generate_tiktok_posts(product: Dict[str, Any], count: int = 5) -> List[Dict[str, Any]]:
     """Generate `count` viral TikTok posts for the given product."""
     api_key = llm_api_key()
@@ -120,7 +90,7 @@ Return JSON with EXACT keys:
             api_key_override=api_key,
         )
     except LlmProviderUnavailable as ex:
-        return _fallback_posts(product, count)
+        raise RuntimeError("TikTok AI generation unavailable; no fallback posts created") from ex
     data = _safe_json_parse(resp)
 
     posts_raw = data.get("posts", []) if isinstance(data, dict) else []
@@ -134,4 +104,6 @@ Return JSON with EXACT keys:
             "hashtags": [str(h).lstrip("#") for h in (p.get("hashtags") or [])][:15],
             "visual_idea": str(p.get("visual_idea", ""))[:500],
         })
+    if not posts:
+        raise RuntimeError("TikTok AI returned no usable posts")
     return posts
