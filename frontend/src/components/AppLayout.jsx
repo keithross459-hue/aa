@@ -1,9 +1,19 @@
 import { Link, NavLink, Navigate, Outlet } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
+import api from "../api";
 import { LayoutDashboard, Package, Megaphone, Rocket, LogOut, Zap, Settings as SettingsIcon, Users, Shield, CreditCard, BarChart3, WandSparkles, UserCircle } from "lucide-react";
 
 export default function AppLayout() {
   const { user, logout, loading } = useAuth();
+  const [announcements, setAnnouncements] = useState([]);
+
+  useEffect(() => {
+    if (!user) return;
+    api.get("/announcements/active")
+      .then((r) => setAnnouncements(r.data.announcements || []))
+      .catch(() => setAnnouncements([]));
+  }, [user]);
   if (loading) return <div className="p-10 font-mono text-zinc-400">Loading…</div>;
   if (!user) return <Navigate to="/login" replace />;
 
@@ -140,6 +150,24 @@ export default function AppLayout() {
 
       {/* Main */}
       <main className="flex-1 overflow-y-auto min-w-0">
+        {announcements[0] && (
+          <div className="border-b border-[#FFD600]/40 bg-[#FFD600] px-5 py-3 text-black" data-testid="active-announcement">
+            <div className="mx-auto flex max-w-7xl flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0">
+                <div className="font-mono text-[10px] uppercase tracking-[0.25em] opacity-70">Live offer</div>
+                <div className="font-heading text-2xl uppercase leading-tight">{announcements[0].title}</div>
+                <div className="text-sm font-medium">{announcements[0].body}</div>
+              </div>
+              <Link
+                to="/pricing?checkout=starter"
+                className="btn-hard shrink-0 bg-black px-4 py-2 text-center font-mono text-xs uppercase tracking-widest text-white"
+                data-testid="announcement-upgrade"
+              >
+                Upgrade
+              </Link>
+            </div>
+          </div>
+        )}
         <Outlet />
       </main>
     </div>
