@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "../api";
-import { Loader2, CheckCircle2, XCircle, Save, Trash2, Zap, ExternalLink } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Save, Trash2, Zap, ExternalLink, UploadCloud, Send } from "lucide-react";
 
 const PROVIDER_META = {
   gumroad: {
@@ -126,10 +126,19 @@ export default function Settings() {
   const [busy, setBusy] = useState({});
   const [testResult, setTestResult] = useState({});
   const [savedMsg, setSavedMsg] = useState("");
+  const [tiktokStatus, setTiktokStatus] = useState(null);
+  const [tiktokPosts, setTiktokPosts] = useState([]);
+  const [videoFile, setVideoFile] = useState(null);
+  const [videoCaption, setVideoCaption] = useState("");
+  const [videoHashtags, setVideoHashtags] = useState("");
+  const [videoScheduleAt, setVideoScheduleAt] = useState("");
+  const [videoMode, setVideoMode] = useState("direct");
 
   const load = async () => {
     const r = await api.get("/settings");
     setData(r.data);
+    api.get("/auth/tiktok/status").then((x) => setTiktokStatus(x.data)).catch(() => setTiktokStatus(null));
+    api.get("/post/tiktok").then((x) => setTiktokPosts(x.data.posts || [])).catch(() => setTiktokPosts([]));
   };
   useEffect(() => { load(); }, []);
 
@@ -176,6 +185,51 @@ export default function Settings() {
     }
   };
 
+  const connectTikTok = async () => {
+    setBusy((b) => ({ ...b, tiktok_oauth: true }));
+    try {
+      const r = await api.get("/auth/tiktok/login");
+      window.location.href = r.data.auth_url;
+    } finally {
+      setBusy((b) => ({ ...b, tiktok_oauth: false }));
+    }
+  };
+
+  const disconnectTikTok = async () => {
+    if (!window.confirm("Disconnect TikTok from this account?")) return;
+    setBusy((b) => ({ ...b, tiktok_disconnect: true }));
+    try {
+      await api.delete("/disconnect/tiktok");
+      await load();
+    } finally {
+      setBusy((b) => ({ ...b, tiktok_disconnect: false }));
+    }
+  };
+
+  const submitTikTokPost = async () => {
+    if (!videoFile) return;
+    setBusy((b) => ({ ...b, tiktok_post: true }));
+    try {
+      const fd = new FormData();
+      fd.append("video", videoFile);
+      fd.append("caption", videoCaption);
+      fd.append("hashtags", videoHashtags);
+      fd.append("mode", videoMode);
+      fd.append("privacy_level", "SELF_ONLY");
+      if (videoScheduleAt) fd.append("schedule_at", new Date(videoScheduleAt).toISOString());
+      await api.post("/post/tiktok", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setVideoFile(null);
+      setVideoCaption("");
+      setVideoHashtags("");
+      setVideoScheduleAt("");
+      await load();
+      setSavedMsg(videoScheduleAt ? "TikTok post scheduled." : "TikTok video sent.");
+      setTimeout(() => setSavedMsg(""), 2500);
+    } finally {
+      setBusy((b) => ({ ...b, tiktok_post: false }));
+    }
+  };
+
   if (!data) return <div className="p-12 font-mono text-zinc-400">Loading...</div>;
 
   return (
@@ -186,6 +240,25 @@ export default function Settings() {
         Plug in your own API keys for every store, ad network, and social platform. Your revenue stays in
         <span className="text-[#FFD600]"> your </span>accounts. We never see the payouts.
       </p>
+
+      <TikTokConnectPanel
+        status={tiktokStatus}
+        posts={tiktokPosts}
+        busy={busy}
+        videoFile={videoFile}
+        setVideoFile={setVideoFile}
+        videoCaption={videoCaption}
+        setVideoCaption={setVideoCaption}
+        videoHashtags={videoHashtags}
+        setVideoHashtags={setVideoHashtags}
+        videoScheduleAt={videoScheduleAt}
+        setVideoScheduleAt={setVideoScheduleAt}
+        videoMode={videoMode}
+        setVideoMode={setVideoMode}
+        onConnect={connectTikTok}
+        onDisconnect={disconnectTikTok}
+        onSubmit={submitTikTokPost}
+      />
 
       {savedMsg && (
         <div className="mb-6 bg-[#FFD600] text-black font-mono text-xs uppercase tracking-widest px-4 py-3 inline-block">
@@ -299,5 +372,159 @@ export default function Settings() {
         </div>
       ))}
     </div>
+  );
+}
+
+function TikTokConnectPanel({
+  status,
+  posts,
+  busy,
+  videoFile,
+  setVideoFile,
+  videoCaption,
+  setVideoCaption,
+  videoHashtags,
+  setVideoHashtags,
+  videoScheduleAt,
+  setVideoScheduleAt,
+  videoMode,
+  setVideoMode,
+  onConnect,
+  onDisconnect,
+  onSubmit,
+}) {
+  const connected = status?.connected;
+  const profile = status?.profile || {};
+  return (
+    <section className="mb-12 border border-[#FFD600] bg-[#FFD600]/5" data-testid="tiktok-oauth-panel">
+      <div className="border-b border-[#FFD600]/40 bg-black p-6">
+        <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.3em] text-[#FFD600]">Official TikTok OAuth</div>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="font-heading text-4xl uppercase">Connect TikTok posting</h2>
+            <p className="mt-2 max-w-3xl text-sm text-zinc-300">
+              Uses TikTok Login Kit and Content Posting API only. Posting requires TikTok approval for video upload/publish scopes.
+            </p>
+          </div>
+          <span className={`font-mono text-[10px] uppercase tracking-widest px-3 py-2 ${connected ? "bg-[#FFD600] text-black" : "bg-zinc-900 text-zinc-400"}`}>
+            {connected ? "Connected" : "Not connected"}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-px bg-zinc-800 lg:grid-cols-[0.8fr_1.2fr]">
+        <div className="bg-zinc-950 p-6">
+          {connected ? (
+            <div>
+              <div className="mb-4 flex items-center gap-3">
+                {profile.avatar_url && <img src={profile.avatar_url} alt="" className="h-12 w-12 border border-zinc-800 object-cover" />}
+                <div>
+                  <div className="font-heading text-2xl uppercase">{profile.display_name || "TikTok connected"}</div>
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">{status?.scope || "Scopes granted"}</div>
+                </div>
+              </div>
+              <button
+                onClick={onDisconnect}
+                disabled={busy.tiktok_disconnect}
+                className="inline-flex items-center gap-2 border border-zinc-700 px-4 py-2 font-mono text-xs uppercase tracking-widest text-zinc-300 hover:border-[#FF3333] hover:text-[#FF3333]"
+              >
+                {busy.tiktok_disconnect ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                Disconnect TikTok
+              </button>
+            </div>
+          ) : (
+            <div>
+              <button
+                onClick={onConnect}
+                disabled={busy.tiktok_oauth || status?.configured === false}
+                className="btn-hard inline-flex items-center gap-2 bg-[#FFD600] px-5 py-3 font-mono text-xs uppercase tracking-widest text-black disabled:opacity-50"
+                data-testid="connect-tiktok-oauth"
+              >
+                {busy.tiktok_oauth ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                Connect TikTok
+              </button>
+              {status?.configured === false && (
+                <div className="mt-3 font-mono text-[10px] uppercase tracking-widest text-[#FF3333]">TikTok env vars are not configured on the backend.</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-zinc-950 p-6">
+          <div className="mb-4 font-mono text-[10px] uppercase tracking-widest text-zinc-500">Upload or schedule video</div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label className="block md:col-span-2">
+              <span className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-zinc-400">Video file</span>
+              <input
+                type="file"
+                accept="video/mp4,video/quicktime,video/webm"
+                onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
+                className="w-full border border-zinc-800 bg-black px-3 py-2 text-sm text-zinc-300"
+              />
+            </label>
+            <label className="block md:col-span-2">
+              <span className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-zinc-400">Caption</span>
+              <textarea
+                value={videoCaption}
+                onChange={(e) => setVideoCaption(e.target.value)}
+                className="min-h-24 w-full border border-zinc-800 bg-black p-3 text-sm text-white focus:border-[#FFD600] focus:outline-none"
+                placeholder="Caption and CTA..."
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-zinc-400">Hashtags</span>
+              <input
+                value={videoHashtags}
+                onChange={(e) => setVideoHashtags(e.target.value)}
+                className="w-full border border-zinc-800 bg-black px-3 py-2 text-sm text-white focus:border-[#FFD600] focus:outline-none"
+                placeholder="digitalproducts launch"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-zinc-400">Schedule time</span>
+              <input
+                type="datetime-local"
+                value={videoScheduleAt}
+                onChange={(e) => setVideoScheduleAt(e.target.value)}
+                className="w-full border border-zinc-800 bg-black px-3 py-2 text-sm text-white focus:border-[#FFD600] focus:outline-none"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-zinc-400">Mode</span>
+              <select
+                value={videoMode}
+                onChange={(e) => setVideoMode(e.target.value)}
+                className="w-full border border-zinc-800 bg-black px-3 py-2 text-sm text-white focus:border-[#FFD600] focus:outline-none"
+              >
+                <option value="direct">Direct Post</option>
+                <option value="inbox">Inbox Upload</option>
+              </select>
+            </label>
+            <button
+              onClick={onSubmit}
+              disabled={!connected || !videoFile || busy.tiktok_post}
+              className="btn-hard flex items-center justify-center gap-2 bg-[#FF3333] px-4 py-2 font-mono text-xs uppercase tracking-widest text-white disabled:opacity-50"
+            >
+              {busy.tiktok_post ? <Loader2 className="h-3 w-3 animate-spin" /> : videoScheduleAt ? <UploadCloud className="h-3 w-3" /> : <Send className="h-3 w-3" />}
+              {videoScheduleAt ? "Schedule" : "Send video"}
+            </button>
+          </div>
+
+          {posts.length > 0 && (
+            <div className="mt-6 border border-zinc-800 bg-black">
+              <div className="border-b border-zinc-800 px-4 py-3 font-mono text-[10px] uppercase tracking-widest text-zinc-500">Recent TikTok post jobs</div>
+              <div className="divide-y divide-zinc-800">
+                {posts.slice(0, 5).map((p) => (
+                  <div key={p.id} className="grid gap-2 px-4 py-3 text-xs text-zinc-300 md:grid-cols-[1fr_auto]">
+                    <div className="truncate">{p.filename || p.caption || p.id}</div>
+                    <div className="font-mono uppercase tracking-widest text-[#FFD600]">{p.status}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }

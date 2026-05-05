@@ -9,6 +9,7 @@ FiiLTHY.AI — Viral Marketing SaaS Backend
 - Plan/usage tracking + Stripe subscriptions + Admin panel + Referrals + Email
 """
 import io
+import asyncio
 import logging
 import os
 import hashlib
@@ -20,7 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -417,6 +418,223 @@ def _env_configured(provider: str, required: List[str]) -> bool:
     return all(creds.get(field) for field in required)
 
 
+def _tiktok_config() -> Dict[str, str]:
+    client_key = os.environ.get("TIKTOK_CLIENT_KEY") or os.environ.get("TIKTOK_CLIENT_ID") or ""
+    client_secret = os.environ.get("TIKTOK_CLIENT_SECRET") or ""
+    redirect_uri = os.environ.get("TIKTOK_REDIRECT_URI") or (
+        f"{os.environ.get('BACKEND_URL', '').rstrip('/')}/api/auth/tiktok/callback"
+    )
+    scopes = os.environ.get("TIKTOK_SCOPES", "user.info.basic,video.upload,video.publish")
+    return {
+        "client_key": client_key,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
+        "scopes": scopes,
+    }
+
+
+def _tiktok_ready() -> bool:
+    cfg = _tiktok_config()
+    return bool(cfg["client_key"] and cfg["client_secret"] and cfg["redirect_uri"])
+
+
+def _dt_from_iso(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _tiktok_encrypt_token(value: str) -> Dict[str, str]:
+    return {"enc": user_settings.encrypt(value or "")}
+
+
+def _tiktok_decrypt_token(value: Optional[Dict[str, str]]) -> str:
+    if not isinstance(value, dict):
+        return ""
+    return user_settings.decrypt(value.get("enc", ""))
+
+
+async def _tiktok_store_tokens(user_id: str, token_data: Dict[str, Any], profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(seconds=int(token_data.get("expires_in") or 0))
+    refresh_expires_at = now + timedelta(seconds=int(token_data.get("refresh_expires_in") or 0))
+    doc = {
+        "user_id": user_id,
+        "open_id": token_data.get("open_id"),
+        "scope": token_data.get("scope", ""),
+        "token_type": token_data.get("token_type", "Bearer"),
+        "access_token": _tiktok_encrypt_token(token_data.get("access_token", "")),
+        "refresh_token": _tiktok_encrypt_token(token_data.get("refresh_token", "")),
+        "expires_at": expires_at.isoformat(),
+        "refresh_expires_at": refresh_expires_at.isoformat(),
+        "profile": profile or {},
+        "connected_at": now.isoformat(),
+        "updated_at": now.isoformat(),
+    }
+    await db.tiktok_connections.update_one({"user_id": user_id}, {"$set": doc}, upsert=True)
+    return doc
+
+
+async def _tiktok_exchange_code(code: str) -> Dict[str, Any]:
+    import httpx
+    cfg = _tiktok_config()
+    if not _tiktok_ready():
+        raise HTTPException(500, "TikTok OAuth is not configured")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.post(
+            "https://open.tiktokapis.com/v2/oauth/token/",
+            data={
+                "client_key": cfg["client_key"],
+                "client_secret": cfg["client_secret"],
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": cfg["redirect_uri"],
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded", "Cache-Control": "no-cache"},
+        )
+    data = r.json() if r.content else {}
+    if r.status_code >= 400 or data.get("error"):
+        raise HTTPException(400, {"message": "tiktok_oauth_exchange_failed", "detail": data})
+    return data
+
+
+async def _tiktok_refresh(conn: Dict[str, Any]) -> str:
+    import httpx
+    cfg = _tiktok_config()
+    refresh_token = _tiktok_decrypt_token(conn.get("refresh_token"))
+    if not refresh_token:
+        raise HTTPException(401, "TikTok refresh token missing")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.post(
+            "https://open.tiktokapis.com/v2/oauth/token/",
+            data={
+                "client_key": cfg["client_key"],
+                "client_secret": cfg["client_secret"],
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded", "Cache-Control": "no-cache"},
+        )
+    data = r.json() if r.content else {}
+    if r.status_code >= 400 or data.get("error"):
+        raise HTTPException(401, {"message": "tiktok_refresh_failed", "detail": data})
+    await _tiktok_store_tokens(conn["user_id"], data, conn.get("profile") or {})
+    return data["access_token"]
+
+
+async def _tiktok_access_token(user_id: str) -> str:
+    conn = await db.tiktok_connections.find_one({"user_id": user_id}, {"_id": 0})
+    if not conn:
+        raise HTTPException(409, "TikTok account is not connected")
+    expires_at = _dt_from_iso(conn.get("expires_at"))
+    if expires_at and expires_at <= datetime.now(timezone.utc) + timedelta(minutes=10):
+        return await _tiktok_refresh(conn)
+    token = _tiktok_decrypt_token(conn.get("access_token"))
+    if not token:
+        raise HTTPException(401, "TikTok access token missing")
+    return token
+
+
+async def _tiktok_fetch_profile(access_token: str) -> Dict[str, Any]:
+    import httpx
+    fields = "open_id,union_id,avatar_url,display_name,profile_deep_link,bio_description"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f"https://open.tiktokapis.com/v2/user/info/?fields={fields}",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+        data = r.json() if r.content else {}
+        return (data.get("data") or {}).get("user") or {}
+    except Exception:
+        return {}
+
+
+async def _tiktok_revoke(access_token: str) -> Dict[str, Any]:
+    import httpx
+    cfg = _tiktok_config()
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.post(
+            "https://open.tiktokapis.com/v2/oauth/revoke/",
+            data={"client_key": cfg["client_key"], "client_secret": cfg["client_secret"], "token": access_token},
+            headers={"Content-Type": "application/x-www-form-urlencoded", "Cache-Control": "no-cache"},
+        )
+    return r.json() if r.content else {"ok": r.status_code < 400}
+
+
+def _public_tiktok_connection(conn: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not conn:
+        return {"connected": False, "configured": _tiktok_ready()}
+    return {
+        "connected": True,
+        "configured": _tiktok_ready(),
+        "open_id": conn.get("open_id"),
+        "scope": conn.get("scope", ""),
+        "profile": conn.get("profile") or {},
+        "expires_at": conn.get("expires_at"),
+        "refresh_expires_at": conn.get("refresh_expires_at"),
+        "connected_at": conn.get("connected_at"),
+    }
+
+
+async def _upload_video_to_tiktok(user_id: str, video_bytes: bytes, filename: str, caption: str, mode: str, privacy_level: str) -> Dict[str, Any]:
+    import httpx
+    access_token = await _tiktok_access_token(user_id)
+    size = len(video_bytes)
+    if size == 0:
+        raise HTTPException(400, "Video file is empty")
+    max_size = int(os.environ.get("TIKTOK_MAX_UPLOAD_BYTES", str(64 * 1024 * 1024)))
+    if size > max_size:
+        raise HTTPException(413, f"Video is too large for single-chunk upload. Max is {max_size} bytes.")
+
+    source_info = {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": size, "total_chunk_count": 1}
+    if mode == "inbox":
+        init_url = "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/"
+        payload = {"source_info": source_info}
+    else:
+        init_url = "https://open.tiktokapis.com/v2/post/publish/video/init/"
+        payload = {
+            "post_info": {
+                "title": caption[:2200],
+                "privacy_level": privacy_level or "SELF_ONLY",
+                "disable_duet": False,
+                "disable_comment": False,
+                "disable_stitch": False,
+            },
+            "source_info": source_info,
+        }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        init = await client.post(
+            init_url,
+            json=payload,
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json; charset=UTF-8"},
+        )
+    init_data = init.json() if init.content else {}
+    if init.status_code >= 400 or (init_data.get("error") or {}).get("code") not in (None, "ok"):
+        raise HTTPException(init.status_code if init.status_code >= 400 else 400, {"message": "tiktok_upload_init_failed", "detail": init_data})
+
+    upload_url = (init_data.get("data") or {}).get("upload_url")
+    publish_id = (init_data.get("data") or {}).get("publish_id")
+    if not upload_url:
+        raise HTTPException(400, {"message": "tiktok_upload_url_missing", "detail": init_data})
+
+    content_type = "video/quicktime" if filename.lower().endswith(".mov") else "video/mp4"
+    headers = {
+        "Content-Type": content_type,
+        "Content-Length": str(size),
+        "Content-Range": f"bytes 0-{size - 1}/{size}",
+    }
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        upload = await client.put(upload_url, content=video_bytes, headers=headers)
+    if upload.status_code >= 400:
+        raise HTTPException(upload.status_code, {"message": "tiktok_binary_upload_failed", "body": upload.text[:1000]})
+    return {"ok": True, "publish_id": publish_id, "mode": mode, "filename": filename, "bytes": size}
+
+
 # ---------- Routes: auth ----------
 @api.get("/")
 async def root():
@@ -718,6 +936,145 @@ async def test_provider(provider: str, user=Depends(current_user)):
             return {"ok": False, "error": str(e)}
     # Other providers: presence check only (publishing call is the real test)
     return {"ok": True, "note": "credentials saved — publishing will perform full validation"}
+
+
+# ---------- TikTok OAuth + Posting ----------
+@api.get("/auth/tiktok/status")
+async def tiktok_status(user=Depends(current_user)):
+    conn = await db.tiktok_connections.find_one({"user_id": user["id"]}, {"_id": 0})
+    return _public_tiktok_connection(conn)
+
+
+@api.get("/auth/tiktok/login")
+async def tiktok_login(user=Depends(current_user)):
+    cfg = _tiktok_config()
+    if not _tiktok_ready():
+        raise HTTPException(500, "TikTok OAuth env vars are not configured")
+    from urllib.parse import urlencode
+    state = secrets.token_urlsafe(32)
+    await db.tiktok_oauth_states.insert_one({
+        "state": state,
+        "user_id": user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+        "used": False,
+    })
+    params = urlencode({
+        "client_key": cfg["client_key"],
+        "scope": cfg["scopes"],
+        "response_type": "code",
+        "redirect_uri": cfg["redirect_uri"],
+        "state": state,
+    })
+    return {"auth_url": f"https://www.tiktok.com/v2/auth/authorize/?{params}", "state": state, "scopes": cfg["scopes"]}
+
+
+@api.get("/auth/tiktok/callback")
+async def tiktok_callback(code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None, error_description: Optional[str] = None):
+    frontend = os.environ.get("FRONTEND_URL", "https://fiilthy-ai-production-frontend.vercel.app").rstrip("/")
+    if error:
+        return RedirectResponse(f"{frontend}/app/settings?tiktok=error&reason={error}")
+    if not code or not state:
+        return RedirectResponse(f"{frontend}/app/settings?tiktok=error&reason=missing_code_or_state")
+
+    state_doc = await db.tiktok_oauth_states.find_one({"state": state, "used": False}, {"_id": 0})
+    if not state_doc:
+        return RedirectResponse(f"{frontend}/app/settings?tiktok=error&reason=invalid_state")
+    expires_at = _dt_from_iso(state_doc.get("expires_at"))
+    if not expires_at or expires_at < datetime.now(timezone.utc):
+        return RedirectResponse(f"{frontend}/app/settings?tiktok=error&reason=state_expired")
+
+    try:
+        token_data = await _tiktok_exchange_code(code)
+        profile = await _tiktok_fetch_profile(token_data.get("access_token", ""))
+        await _tiktok_store_tokens(state_doc["user_id"], token_data, profile)
+        await db.tiktok_oauth_states.update_one({"state": state}, {"$set": {"used": True, "used_at": datetime.now(timezone.utc).isoformat()}})
+    except Exception as ex:
+        log.error("TikTok OAuth callback failed: %s", ex)
+        return RedirectResponse(f"{frontend}/app/settings?tiktok=error&reason=exchange_failed")
+    return RedirectResponse(f"{frontend}/app/settings?tiktok=connected")
+
+
+@api.delete("/disconnect/tiktok")
+@api.post("/disconnect/tiktok")
+async def tiktok_disconnect(user=Depends(current_user)):
+    conn = await db.tiktok_connections.find_one({"user_id": user["id"]}, {"_id": 0})
+    if conn:
+        token = _tiktok_decrypt_token(conn.get("access_token"))
+        if token and _tiktok_ready():
+            try:
+                await _tiktok_revoke(token)
+            except Exception as ex:
+                log.warning("TikTok revoke failed for user %s: %s", user["id"], ex)
+    await db.tiktok_connections.delete_one({"user_id": user["id"]})
+    return {"ok": True, "connected": False}
+
+
+@api.post("/post/tiktok")
+async def tiktok_post_video(
+    video: UploadFile = File(...),
+    caption: str = Form(""),
+    hashtags: str = Form(""),
+    schedule_at: Optional[str] = Form(None),
+    mode: str = Form("direct"),
+    privacy_level: str = Form("SELF_ONLY"),
+    user=Depends(current_user),
+):
+    mode = mode if mode in ("direct", "inbox") else "direct"
+    caption_full = caption.strip()
+    tags = " ".join(f"#{h.strip().lstrip('#')}" for h in hashtags.replace(",", " ").split() if h.strip())
+    if tags and tags not in caption_full:
+        caption_full = f"{caption_full}\n\n{tags}".strip()
+
+    schedule_dt = _dt_from_iso(schedule_at) if schedule_at else None
+    now = datetime.now(timezone.utc)
+    if schedule_dt and schedule_dt > now + timedelta(minutes=1):
+        upload_dir = ROOT_DIR / "uploads" / "tiktok"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        ext = ".mov" if (video.filename or "").lower().endswith(".mov") else ".mp4"
+        post_id = str(uuid.uuid4())
+        path = upload_dir / f"{post_id}{ext}"
+        content = await video.read()
+        path.write_bytes(content)
+        doc = {
+            "id": post_id,
+            "user_id": user["id"],
+            "filename": video.filename,
+            "local_path": str(path),
+            "caption": caption_full,
+            "mode": mode,
+            "privacy_level": privacy_level,
+            "status": "SCHEDULED",
+            "scheduled_for": schedule_dt.isoformat(),
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+        }
+        await db.tiktok_post_queue.insert_one(doc.copy())
+        doc.pop("local_path", None)
+        return {"ok": True, "queued": True, "post": doc}
+
+    content = await video.read()
+    result = await _upload_video_to_tiktok(user["id"], content, video.filename or "video.mp4", caption_full, mode, privacy_level)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "filename": video.filename,
+        "caption": caption_full,
+        "mode": mode,
+        "privacy_level": privacy_level,
+        "status": "UPLOADED",
+        "tiktok_result": result,
+        "created_at": now.isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.tiktok_post_queue.insert_one(doc.copy())
+    return {"ok": True, "queued": False, "post": {k: v for k, v in doc.items() if k != "local_path"}}
+
+
+@api.get("/post/tiktok")
+async def tiktok_posts(user=Depends(current_user)):
+    rows = await db.tiktok_post_queue.find({"user_id": user["id"]}, {"_id": 0, "local_path": 0}).sort("created_at", -1).to_list(100)
+    return {"posts": rows}
 
 
 # ---------- Routes: products ----------
@@ -1959,9 +2316,66 @@ app.add_middleware(
     requests_per_minute=int(os.environ.get("RATE_LIMIT_PER_MINUTE", "120")),
 )
 
+_tiktok_scheduler_task = None
+
+
+async def _process_tiktok_due_posts_once():
+    now = datetime.now(timezone.utc).isoformat()
+    rows = await db.tiktok_post_queue.find(
+        {"status": "SCHEDULED", "scheduled_for": {"$lte": now}},
+        {"_id": 0},
+    ).limit(5).to_list(5)
+    for row in rows:
+        post_id = row["id"]
+        await db.tiktok_post_queue.update_one(
+            {"id": post_id, "status": "SCHEDULED"},
+            {"$set": {"status": "PROCESSING", "updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        try:
+            path = Path(row.get("local_path", ""))
+            if not path.exists():
+                raise RuntimeError("scheduled video file is missing")
+            video_bytes = path.read_bytes()
+            result = await _upload_video_to_tiktok(
+                row["user_id"],
+                video_bytes,
+                row.get("filename") or path.name,
+                row.get("caption") or "",
+                row.get("mode") or "direct",
+                row.get("privacy_level") or "SELF_ONLY",
+            )
+            await db.tiktok_post_queue.update_one(
+                {"id": post_id},
+                {"$set": {
+                    "status": "UPLOADED",
+                    "tiktok_result": result,
+                    "processed_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+        except Exception as ex:
+            await db.tiktok_post_queue.update_one(
+                {"id": post_id},
+                {"$set": {
+                    "status": "FAILED",
+                    "error": str(ex)[:1000],
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+
+
+async def _tiktok_scheduler_loop():
+    while True:
+        try:
+            await _process_tiktok_due_posts_once()
+        except Exception as ex:
+            log.warning("TikTok scheduler tick failed: %s", ex)
+        await asyncio.sleep(int(os.environ.get("TIKTOK_SCHEDULER_INTERVAL_SECONDS", "60")))
+
 
 @app.on_event("startup")
 async def startup():
+    global _tiktok_scheduler_task
     sentry_dsn = os.environ.get("SENTRY_DSN")
     if sentry_dsn:
         try:
@@ -1994,8 +2408,12 @@ async def startup():
             )
         except Exception:
             pass
+    if os.environ.get("ENABLE_TIKTOK_SCHEDULER", "true").lower() == "true":
+        _tiktok_scheduler_task = asyncio.create_task(_tiktok_scheduler_loop())
 
 
 @app.on_event("shutdown")
 async def shutdown():
+    if _tiktok_scheduler_task:
+        _tiktok_scheduler_task.cancel()
     close_client()
