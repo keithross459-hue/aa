@@ -423,7 +423,7 @@ def _tiktok_config() -> Dict[str, str]:
     client_secret = os.environ.get("TIKTOK_CLIENT_SECRET") or ""
     backend_redirect = f"{os.environ.get('BACKEND_URL', '').rstrip('/')}/api/auth/tiktok/callback"
     redirect_uri = os.environ.get("TIKTOK_REDIRECT_URI") or backend_redirect
-    if "api.fiilthy.ai" in redirect_uri and os.environ.get("ALLOW_UNVERIFIED_TIKTOK_REDIRECT", "").lower() != "true":
+    if "api.fiilthy.ai" in redirect_uri:
         redirect_uri = backend_redirect
     scopes = os.environ.get("TIKTOK_SCOPES", "user.info.basic,video.upload,video.publish")
     return {
