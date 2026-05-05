@@ -42,7 +42,7 @@ export default function AppLayout() {
           <NavLink to="/app" end className={link}>Dashboard</NavLink>
           <NavLink to="/app/products" className={link}>Builder</NavLink>
           <NavLink to="/app/money" className={link}>Money</NavLink>
-          <NavLink to="/app/machine" className={link}>Auto Mode</NavLink>
+          <NavLink to="/app/machine" className={link}>Automation</NavLink>
           <NavLink to="/app/billing" className={link}>Billing</NavLink>
           <NavLink to="/app/platforms" className={link}>Platforms</NavLink>
           <NavLink to="/app/referrals" className={link}>Referrals</NavLink>
@@ -65,7 +65,7 @@ export default function AppLayout() {
             <LayoutDashboard className="w-4 h-4" /> Dashboard
           </NavLink>
           <NavLink to="/app/products" className={link} data-testid="nav-products">
-            <Package className="w-4 h-4" /> Builder
+            <Package className="w-4 h-4" /> Product Quality
           </NavLink>
           <NavLink to="/app/money" className={link} data-testid="nav-money">
             <DollarSign className="w-4 h-4" /> Money Path
@@ -77,7 +77,7 @@ export default function AppLayout() {
             <Rocket className="w-4 h-4" /> Store Launches
           </NavLink>
           <NavLink to="/app/machine" className={link} data-testid="nav-machine">
-            <WandSparkles className="w-4 h-4" /> Auto Mode
+            <WandSparkles className="w-4 h-4" /> Final Automation
           </NavLink>
           <NavLink to="/app/billing" className={link} data-testid="nav-billing">
             <CreditCard className="w-4 h-4" /> Billing

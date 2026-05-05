@@ -181,7 +181,7 @@ export default function ProductDetail() {
       <section className="mb-10 border border-zinc-800 bg-zinc-950 p-6 lg:p-8">
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="min-w-0 flex-1">
-            <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#FFD600]">Product draft</div>
+            <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#FFD600]">Sellability workspace</div>
             {editing ? (
               <div className="space-y-3">
                 <EditInput value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} testid="edit-title" />
@@ -221,7 +221,7 @@ export default function ProductDetail() {
         <div className="mt-6 border border-[#FFD600]/30 bg-black p-4">
           <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.24em] text-[#FFD600]">Manual launch ready</div>
           <p className="text-sm text-zinc-300">
-            The store upload bundle includes the product PDF, listing copy, sales copy, ad campaigns, TikTok posts, and a setup checklist so it can be uploaded to Gumroad, Payhip, Stan, Whop, Shopify, Etsy, or another store by hand.
+            The store upload bundle includes the product PDF, cover image, listing copy, sales copy, ad campaigns, TikTok posts, and a setup checklist so it can be uploaded to Gumroad, Payhip, Stan, Whop, Shopify, Etsy, or another store by hand.
           </p>
         </div>
 

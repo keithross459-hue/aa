@@ -58,23 +58,23 @@ export default function Dashboard() {
   return (
     <div className="p-6 lg:p-10" data-testid="dashboard-page">
       <div className="mb-8">
-        <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#FFD600]">Start here</div>
-        <h1 className="font-heading text-5xl uppercase lg:text-6xl">Get your first result</h1>
-        <p className="mt-2 max-w-2xl text-zinc-400">One product. One next action. No extra noise.</p>
+        <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#FFD600]">Quality first</div>
+        <h1 className="font-heading text-5xl uppercase lg:text-6xl">Make the product worth selling</h1>
+        <p className="mt-2 max-w-2xl text-zinc-400">One complete product, one clear buyer, one next action. Automation comes after the offer is real.</p>
       </div>
 
       {!activeProduct ? (
         <section className="border border-[#FFD600] bg-[#FFD600]/10 p-6">
           <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">Step 1</div>
-          <div className="font-heading text-4xl uppercase">Choose a niche</div>
-          <p className="mt-2 max-w-xl text-zinc-300">Create the first product before looking at anything else.</p>
+          <div className="font-heading text-4xl uppercase">Choose a buyer</div>
+          <p className="mt-2 max-w-xl text-zinc-300">Create the first complete product before looking at automation.</p>
           <Link
             to="/app/products"
             onClick={() => trackOnboarding("primary_cta_clicked", { cta: "dashboard_start_here" })}
             className="btn-hard mt-5 inline-flex items-center gap-2 bg-[#FFD600] px-5 py-3 font-mono text-xs uppercase tracking-widest text-black"
             data-testid="dashboard-start-here"
           >
-            Start here
+            Build product
           </Link>
         </section>
       ) : (
@@ -143,13 +143,13 @@ export default function Dashboard() {
 
 function nextAction(product, signal, hasStoreConnected) {
   if (!product) {
-    return { id: "start", title: "Choose a niche", body: "Start with one niche and one product.", cta: "Start here", href: "/app/products" };
+    return { id: "start", title: "Choose a buyer", body: "Start with one clear buyer and one useful product.", cta: "Build product", href: "/app/products" };
   }
   if (!hasStoreConnected) {
     return { id: "connect_store", title: "Connect a real store", body: "Publishing only works when Gumroad, Stan Store, Whop, or Payhip is connected.", cta: "Connect store", href: "/app/settings", red: true };
   }
   if (!product.launched_stores?.length) {
-    return { id: "launch_now", title: "Publish real listing", body: "Your next meaningful action is getting this product live on a real store.", cta: "Publish now", href: `/app/products/${product.id}`, red: true };
+    return { id: "launch_now", title: "Review then publish", body: "Check the product assets and store copy, then publish it to a real store.", cta: "Review product", href: `/app/products/${product.id}`, red: true };
   }
   if (!signal?.milestones?.first_post && !signal?.milestones?.first_engagement) {
     return { id: "copy_tiktok", title: "Copy your first TikTok", body: "Promotion creates traffic. Copy one post and publish it.", cta: "Get your first result", href: `/app/products/${product.id}#traffic-engine` };

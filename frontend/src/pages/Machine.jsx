@@ -1,19 +1,20 @@
 import { Link } from "react-router-dom";
-import { Package, Settings, ShieldCheck } from "lucide-react";
+import { Package, Settings, ShieldCheck, WandSparkles } from "lucide-react";
 
 export default function Machine() {
   return (
     <div className="p-8 lg:p-12" data-testid="machine-page">
-      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-[#FFD600] mb-2">Real-only mode</div>
-      <h1 className="font-heading text-5xl lg:text-6xl uppercase mb-6">Auto Mode is off</h1>
+      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-[#FFD600] mb-2">Final step only</div>
+      <h1 className="font-heading text-5xl lg:text-6xl uppercase mb-6">Automation comes after quality</h1>
       <p className="mb-10 max-w-3xl text-zinc-300">
-        One-click automation was disabled because it created generated launch stacks without real store publishing. Build the product, connect a real store, then publish through the verified launch flow.
+        FiiLTHY does not scale empty drafts. Build a complete product, review the sellability assets, connect real platforms, then use automation to move faster once the product is ready to be sold.
       </p>
 
-      <section className="grid grid-cols-1 gap-px border border-zinc-800 bg-zinc-800 lg:grid-cols-3">
-        <RealStep icon={<Package />} title="Build" body="Create or edit a product in the builder. Generated drafts are saved as drafts, not launches." to="/app/products" cta="Open builder" />
-        <RealStep icon={<Settings />} title="Connect" body="Add Gumroad, Stan Store, Whop, or Payhip credentials before publishing." to="/app/settings" cta="Open settings" />
-        <RealStep icon={<ShieldCheck />} title="Publish" body="A launch only counts when the provider returns a real live listing URL." to="/app/launch" cta="View ledger" />
+      <section className="grid grid-cols-1 gap-px border border-zinc-800 bg-zinc-800 lg:grid-cols-4">
+        <RealStep icon={<Package />} title="Product quality" body="Review the title, promise, outline, deliverable, price, and customer outcome before anything gets promoted." to="/app/products" cta="Review products" />
+        <RealStep icon={<ShieldCheck />} title="Sellability check" body="Use the store description, sales copy, cover, and promo videos to judge whether a buyer can understand the value fast." to="/app/products" cta="Open inventory" />
+        <RealStep icon={<Settings />} title="Real platforms" body="Connect Gumroad, Stan Store, Whop, Payhip, Stripe, TikTok, or other providers when you want publishing and posting to run through official APIs." to="/app/settings" cta="Open settings" />
+        <RealStep icon={<WandSparkles />} title="Automate last" body="Only scale the product after the assets are complete and the launch path is connected. Automation is the accelerator, not the proof." to="/app/platforms" cta="View platforms" />
       </section>
     </div>
   );

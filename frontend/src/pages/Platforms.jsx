@@ -32,7 +32,7 @@ const GROUPS = [
   {
     title: "Social",
     rows: [
-      { id: "tiktok_oauth", name: "TikTok OAuth", capability: "Login, upload, scheduling", setup: "/app/settings", external: "https://developers.tiktok.com/" },
+      { id: "tiktok_oauth", name: "TikTok OAuth", capability: "Official posting after approval", setup: "/app/settings", external: "https://developers.tiktok.com/" },
       { id: "meta", name: "Meta Ads", capability: "Paid campaign activation", setup: "/app/settings", external: "https://developers.facebook.com/tools/explorer/" },
       { id: "instagram", name: "Instagram", capability: "Social profile connection", setup: "/app/settings", external: "https://developers.facebook.com/docs/instagram-api/" },
       { id: "youtube", name: "YouTube", capability: "Shorts/API setup", setup: "/app/settings", external: "https://console.cloud.google.com/apis/credentials" },
@@ -42,7 +42,7 @@ const GROUPS = [
     title: "Infrastructure",
     rows: [
       { id: "frontend", name: "Frontend", capability: "App UI", external: "https://fiilthy-ai-production-frontend.vercel.app" },
-      { id: "backend", name: "Backend", capability: "API and automation", external: "https://fiilthy-ai-production-backend.onrender.com/api/health" },
+      { id: "backend", name: "Backend", capability: "Real APIs and asset generation", external: "https://fiilthy-ai-production-backend.onrender.com/api/health" },
       { id: "dns", name: "DNS", capability: "fiilthy.ai / api.fiilthy.ai", external: "https://vercel.com/docs/domains" },
       { id: "email", name: "SendGrid", capability: "Transactional and launch email", setup: "/app/admin" },
     ],
@@ -92,11 +92,11 @@ export default function Platforms() {
 
   return (
     <div className="p-8 lg:p-12" data-testid="platforms-page">
-      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.3em] text-[#FFD600]">Connector hub</div>
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.3em] text-[#FFD600]">Automation layer</div>
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-heading text-5xl uppercase lg:text-6xl">Platform command center</h1>
-          <p className="mt-3 max-w-3xl text-zinc-400">One place to see what FiiLTHY can control, what needs approval, and what owner setup is still blocking automation.</p>
+          <h1 className="font-heading text-5xl uppercase lg:text-6xl">Connect platforms after the product is ready</h1>
+          <p className="mt-3 max-w-3xl text-zinc-400">Connections are for official publishing, payments, and tracking. Product quality and sellability come first; automation only speeds up a real launch path.</p>
         </div>
         <button onClick={load} className="inline-flex items-center gap-2 border border-zinc-700 px-4 py-2 font-mono text-xs uppercase tracking-widest text-white hover:bg-white hover:text-black">
           {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Refresh

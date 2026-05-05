@@ -211,11 +211,11 @@ export default function Products() {
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#FFD600]">
-            First product setup
+            Product quality workspace
           </div>
-          <h1 className="font-heading text-5xl uppercase lg:text-6xl">Start here</h1>
+          <h1 className="font-heading text-5xl uppercase lg:text-6xl">Build something sellable</h1>
           <p className="mt-2 max-w-3xl text-zinc-400">
-            Choose a niche. Build the first product. Launch now. Everything else can wait.
+            Every product should contain a clear buyer, useful deliverable, store-ready description, cover, sales copy, and promo assets before automation touches it.
           </p>
         </div>
         {items.length > 0 && !firstRun && (
@@ -230,7 +230,7 @@ export default function Products() {
       </div>
 
       <div className="mb-8 grid gap-px border border-zinc-800 bg-zinc-800 lg:grid-cols-3">
-        {["Choose niche", "Build product", "Launch"].map((step, i) => (
+        {["Pick buyer", "Complete product", "Prove sellability"].map((step, i) => (
           <div key={step} className="bg-zinc-950 p-4">
             <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-zinc-500">
               {String(i + 1).padStart(2, "0")}
@@ -253,7 +253,7 @@ export default function Products() {
               </div>
             </div>
           )}
-          <StepLabel n="01" label="Choose niche" />
+          <StepLabel n="01" label="Pick the buyer and outcome" />
           <Field label="What niche do you want?" value={niche} onChange={setNiche} placeholder="Fitness plans for busy founders" testid="niche-input" />
 
           <button
@@ -301,12 +301,12 @@ export default function Products() {
 
           <button type="submit" disabled={busy} className="btn-hard flex w-full items-center justify-center gap-2 bg-[#FFD600] py-4 font-mono text-sm uppercase tracking-widest text-black disabled:opacity-60" data-testid="generate-product-btn">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {busy ? "Building..." : "Start here"}
+            {busy ? "Building..." : "Build sellable product"}
           </button>
         </form>
 
         {!firstRun && <div className="bg-zinc-950 p-6 xl:col-span-4">
-          <StepLabel n="03" label="Pick a winning direction" />
+          <StepLabel n="03" label="Pick a sellable direction" />
           <div className="space-y-3">
             {examples.map((ex, i) => (
               <button
@@ -332,7 +332,7 @@ export default function Products() {
         </div>}
 
         {!firstRun && <div className="bg-zinc-950 p-6 xl:col-span-3">
-          <StepLabel n="04" label="Confidence layer" />
+          <StepLabel n="04" label="Sellability check" />
           <div className="space-y-4">
             <Insight icon={<Target />} title="Why this could work" text={chosen.reason} />
             <Insight icon={<Flame />} title="Trend signal" text={`${niche || "This niche"} is easy to test with hooks, templates, and visible before-after outcomes.`} />
@@ -356,9 +356,9 @@ export default function Products() {
         <div className="mt-8 border border-[#FFD600] bg-[#FFD600]/10 p-5">
           <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">First action complete</div>
           <div className="font-heading text-3xl uppercase">{latest.title}</div>
-          <p className="mt-1 text-sm text-zinc-300">Next step: launch now.</p>
+          <p className="mt-1 text-sm text-zinc-300">Next step: review quality, then launch.</p>
           <Link to={`/app/products/${latest.id}`} className="btn-hard btn-hard-red mt-4 inline-flex items-center gap-2 bg-[#FF3333] px-5 py-3 font-mono text-xs uppercase tracking-widest text-white">
-            Launch now <ArrowRight className="h-4 w-4" />
+            Review product <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
       )}
@@ -367,9 +367,9 @@ export default function Products() {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-6 py-4">
           <div>
             <div className="font-mono text-xs uppercase tracking-widest">Product inventory - {items.length}</div>
-            <div className="mt-1 text-sm text-zinc-400">Every card contains the finished product, store copy, cover, and manual promo assets.</div>
+            <div className="mt-1 text-sm text-zinc-400">Every card is organized around quality, clarity, completeness, and real sellability assets.</div>
           </div>
-          <div className="font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">100% manual launch ready</div>
+          <div className="font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">Quality first, automate last</div>
         </div>
         {items.length === 0 ? (
           <div className="p-10 text-center font-mono text-xs uppercase tracking-widest text-zinc-500">
