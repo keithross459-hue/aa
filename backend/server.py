@@ -314,6 +314,56 @@ def _safe_json_parse(text: str):
     raise HTTPException(500, "AI returned malformed output. Please retry.")
 
 
+def _fallback_product_data(req: GenerateProductReq) -> dict:
+    """Create a real product scaffold when upstream AI providers are unavailable."""
+    niche = (req.niche or "digital product").strip()
+    audience = (req.audience or "creators and small business owners").strip()
+    product_type = (req.product_type or "ebook").strip()
+    title_core = " ".join(w.capitalize() for w in niche.replace("-", " ").split()[:5])
+    title = f"{title_core} Playbook"[:80] or "Digital Offer Playbook"
+    price = 29.0
+    if req.price_hint:
+        import re
+        prices = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", req.price_hint)]
+        if prices:
+            price = max(1.0, min(prices[-1], 497.0))
+    return {
+        "title": title,
+        "tagline": f"A practical {product_type} for {audience} who want a faster path from idea to first sale.",
+        "description": (
+            f"{title} turns {niche} into a simple, sellable execution plan. "
+            "It gives buyers the structure, prompts, checklists, and launch steps they need to move quickly without guessing."
+        ),
+        "target_audience": audience,
+        "price": price,
+        "bullet_features": [
+            "Clear offer positioning worksheet",
+            "Step-by-step execution checklist",
+            "Buyer promise and angle prompts",
+            "Launch copy starter templates",
+            "Simple traffic plan for first clicks",
+            "Post-launch optimization checklist",
+        ],
+        "outline": [
+            "Pick the painful promise",
+            "Define the buyer and outcome",
+            "Package the smallest paid win",
+            "Write the sales page spine",
+            "Create the launch asset checklist",
+            "Publish the offer",
+            "Drive first traffic",
+            "Measure clicks, sales, and objections",
+            "Improve or kill based on real data",
+        ],
+        "sales_copy": (
+            f"If you want to turn {niche} into something people can actually buy, this {product_type} gives you the direct path. "
+            "No bloated theory, no pretend metrics, no waiting for perfect branding. You get the offer structure, buyer prompts, "
+            "sales copy angles, traffic checklist, and launch review steps needed to put a real product in front of real buyers."
+        ),
+        "cover_concept": f"Premium black and yellow digital cover for {title}, bold typography, commerce-focused layout.",
+    }
+
+
 def _env_provider_credentials(provider: str) -> Dict[str, str]:
     mappings: Dict[str, Dict[str, List[str]]] = {
         "gumroad": {"access_token": ["GUMROAD_ACCESS_TOKEN", "GUMROAD_TOKEN"]},
@@ -706,7 +756,9 @@ Return JSON with EXACT keys:
         raw = await llm_json(sys_msg, prompt, session_id=f"product-{user['id']}-{uuid.uuid4().hex[:8]}")
         data = _safe_json_parse(raw)
     except HTTPException as ex:
-        raise ex
+        if ex.status_code != 503:
+            raise ex
+        data = _fallback_product_data(req)
 
     pid = str(uuid.uuid4())
     product = {
