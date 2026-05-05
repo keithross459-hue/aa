@@ -176,7 +176,7 @@ export default function ProductDetail() {
         ))}
       </div>
 
-      <SignalProofStrip productId={id} launched={listings.length > 0} />
+      <SignalProofStrip productId={id} launched={realListings.length > 0} />
 
       <section className="mb-10 border border-zinc-800 bg-zinc-950 p-6 lg:p-8">
         <div className="flex flex-wrap items-start justify-between gap-6">

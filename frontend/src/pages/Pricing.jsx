@@ -39,7 +39,7 @@ const TIERS = [
     badge: null,
     note: "For users already launching often",
     cta: "Upgrade to Pro",
-    perks: ["Batch product launches", "Advanced content variations", "Faster cycles", "All stores + analytics"],
+    perks: ["Batch product launches", "Advanced content variations", "Faster cycles", "Real store publishing + analytics"],
   },
   {
     id: "enterprise",
@@ -118,7 +118,7 @@ export default function Pricing() {
         </header>
 
         <div className="max-w-7xl mx-auto px-6 py-24">
-          <div className="font-mono text-xs uppercase tracking-[0.3em] text-[#FFD600] mb-4">▮ Start small. Scale after proof.</div>
+          <div className="font-mono text-xs uppercase tracking-[0.3em] text-[#FFD600] mb-4">Start small. Scale after proof.</div>
           <h1 className="font-heading text-6xl lg:text-8xl uppercase mb-4 leading-[0.9]">
             Get more launches. <span className="text-[#FFD600]">Keep momentum.</span>
           </h1>
@@ -178,7 +178,7 @@ export default function Pricing() {
                 >
                   {busyId === t.id ? (
                     <span className="inline-flex items-center gap-2 justify-center">
-                      <Loader2 className="w-3 h-3 animate-spin" /> Redirecting…
+                      <Loader2 className="w-3 h-3 animate-spin" /> Redirecting...
                     </span>
                   ) : (
                     <span className="inline-flex items-center justify-center gap-2">

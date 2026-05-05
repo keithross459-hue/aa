@@ -8,6 +8,7 @@ import { useAuth } from "../auth";
 export default function Dashboard() {
   const { user } = useAuth();
   const [products, setProducts] = useState([]);
+  const [settings, setSettings] = useState(null);
   const [signal, setSignal] = useState(null);
 
   useEffect(() => {
@@ -18,6 +19,7 @@ export default function Dashboard() {
     (async () => {
       const p = await api.get("/products");
       setProducts(p.data);
+      api.get("/settings").then((r) => setSettings(r.data)).catch(() => setSettings(null));
     })();
   }, []);
 
@@ -48,7 +50,9 @@ export default function Dashboard() {
     };
   }, [activeProduct?.id, activeProduct?.launched_stores?.length]);
 
-  const next = nextAction(activeProduct, signal);
+  const storeProviders = ["gumroad", "stan_store", "whop", "payhip"];
+  const hasStoreConnected = storeProviders.some((id) => settings?.providers?.[id]?.configured);
+  const next = nextAction(activeProduct, signal, hasStoreConnected);
   const showStarterOffer = (user?.plan || "free") === "free" && products.length > 0;
 
   return (
@@ -99,7 +103,8 @@ export default function Dashboard() {
             <div className="mb-4 font-mono text-[10px] uppercase tracking-widest text-zinc-500">First result progress</div>
             <div className="space-y-3">
               <ProgressRow done label="Product created" />
-              <ProgressRow done={activeProduct.launched_stores?.length > 0} label="Product launched" />
+              <ProgressRow done={hasStoreConnected} label="Store connected" />
+              <ProgressRow done={activeProduct.launched_stores?.length > 0} label="Real listing live" />
               <ProgressRow done={signal?.milestones?.first_post || signal?.milestones?.first_engagement} label="First TikTok copied" />
               <ProgressRow done={signal?.milestones?.first_click} label="First click" />
               <ProgressRow done={signal?.milestones?.first_sale} label="First sale" />
@@ -136,12 +141,15 @@ export default function Dashboard() {
   );
 }
 
-function nextAction(product, signal) {
+function nextAction(product, signal, hasStoreConnected) {
   if (!product) {
     return { id: "start", title: "Choose a niche", body: "Start with one niche and one product.", cta: "Start here", href: "/app/products" };
   }
+  if (!hasStoreConnected) {
+    return { id: "connect_store", title: "Connect a real store", body: "Publishing only works when Gumroad, Stan Store, Whop, or Payhip is connected.", cta: "Connect store", href: "/app/settings", red: true };
+  }
   if (!product.launched_stores?.length) {
-    return { id: "launch_now", title: "Launch now", body: "Your first meaningful action is getting this product live.", cta: "Launch now", href: `/app/products/${product.id}`, red: true };
+    return { id: "launch_now", title: "Publish real listing", body: "Your next meaningful action is getting this product live on a real store.", cta: "Publish now", href: `/app/products/${product.id}`, red: true };
   }
   if (!signal?.milestones?.first_post && !signal?.milestones?.first_engagement) {
     return { id: "copy_tiktok", title: "Copy your first TikTok", body: "Promotion creates traffic. Copy one post and publish it.", cta: "Get your first result", href: `/app/products/${product.id}#traffic-engine` };

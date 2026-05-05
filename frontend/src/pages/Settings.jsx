@@ -41,7 +41,7 @@ const PROVIDER_META = {
   },
   openai: {
     name: "OpenAI",
-    tagline: "Use your own OpenAI key for generations (optional — platform key is default).",
+    tagline: "Use your own OpenAI key for generations (optional - platform key is default).",
     help: "Get a key at https://platform.openai.com/api-keys",
     helpUrl: "https://platform.openai.com/api-keys",
     fieldLabels: { api_key: "API Key (sk-...)" },
@@ -176,11 +176,11 @@ export default function Settings() {
     }
   };
 
-  if (!data) return <div className="p-12 font-mono text-zinc-400">Loading…</div>;
+  if (!data) return <div className="p-12 font-mono text-zinc-400">Loading...</div>;
 
   return (
     <div className="p-8 lg:p-12" data-testid="settings-page">
-      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-[#FFD600] mb-2">▮ Integrations</div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-[#FFD600] mb-2">Integrations</div>
       <h1 className="font-heading text-5xl lg:text-6xl uppercase mb-4">Connect your accounts</h1>
       <p className="text-zinc-400 max-w-3xl mb-10">
         Plug in your own API keys for every store, ad network, and social platform. Your revenue stays in
@@ -189,13 +189,13 @@ export default function Settings() {
 
       {savedMsg && (
         <div className="mb-6 bg-[#FFD600] text-black font-mono text-xs uppercase tracking-widest px-4 py-3 inline-block">
-          ✓ {savedMsg}
+          Saved: {savedMsg}
         </div>
       )}
 
       {ORDER.map(([section, ids]) => (
         <div key={section} className="mb-12">
-          <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-500 mb-4">▮ {section}</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-500 mb-4">{section}</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-zinc-800 border border-zinc-800">
             {ids.map((pid) => {
               const meta = PROVIDER_META[pid];
@@ -231,7 +231,7 @@ export default function Settings() {
                         <input
                           type={field.includes("token") || field.includes("key") ? "password" : "text"}
                           value={draft[field] ?? ""}
-                          placeholder={state.fields[field] || "Enter value…"}
+                          placeholder={state.fields[field] || "Enter value..."}
                           onChange={(e) => onChange(pid, field, e.target.value)}
                           className="w-full bg-transparent border border-zinc-800 px-3 py-2 text-white font-mono text-xs focus:border-[#FFD600] focus:outline-none"
                           data-testid={`input-${pid}-${field}`}
