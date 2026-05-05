@@ -421,9 +421,10 @@ def _env_configured(provider: str, required: List[str]) -> bool:
 def _tiktok_config() -> Dict[str, str]:
     client_key = os.environ.get("TIKTOK_CLIENT_KEY") or os.environ.get("TIKTOK_CLIENT_ID") or ""
     client_secret = os.environ.get("TIKTOK_CLIENT_SECRET") or ""
-    redirect_uri = os.environ.get("TIKTOK_REDIRECT_URI") or (
-        f"{os.environ.get('BACKEND_URL', '').rstrip('/')}/api/auth/tiktok/callback"
-    )
+    backend_redirect = f"{os.environ.get('BACKEND_URL', '').rstrip('/')}/api/auth/tiktok/callback"
+    redirect_uri = os.environ.get("TIKTOK_REDIRECT_URI") or backend_redirect
+    if "api.fiilthy.ai" in redirect_uri and os.environ.get("ALLOW_UNVERIFIED_TIKTOK_REDIRECT", "").lower() != "true":
+        redirect_uri = backend_redirect
     scopes = os.environ.get("TIKTOK_SCOPES", "user.info.basic,video.upload,video.publish")
     return {
         "client_key": client_key,
@@ -970,6 +971,7 @@ async def tiktok_login(user=Depends(current_user)):
 
 
 @api.get("/auth/tiktok/callback")
+@api.get("/social/tiktok/callback")
 async def tiktok_callback(code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None, error_description: Optional[str] = None):
     frontend = os.environ.get("FRONTEND_URL", "https://fiilthy-ai-production-frontend.vercel.app").rstrip("/")
     if error:

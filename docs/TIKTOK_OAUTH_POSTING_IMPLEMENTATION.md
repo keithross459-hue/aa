@@ -32,6 +32,14 @@ TikTok redirect URI to register:
 https://fiilthy-ai-production-backend.onrender.com/api/auth/tiktok/callback
 ```
 
+Temporary no-DNS callback alias also exists:
+
+```txt
+https://fiilthy-ai-production-backend.onrender.com/api/social/tiktok/callback
+```
+
+Use the Render default URL until `api.fiilthy.ai` DNS is live.
+
 ## Official TikTok APIs Used
 
 - OAuth authorize URL: `https://www.tiktok.com/v2/auth/authorize/`
