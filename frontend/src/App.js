@@ -21,6 +21,7 @@ const Billing = lazy(() => import("./pages/Billing"));
 const ExecutiveAnalytics = lazy(() => import("./pages/ExecutiveAnalytics"));
 const Machine = lazy(() => import("./pages/Machine"));
 const Account = lazy(() => import("./pages/Account"));
+const Legal = lazy(() => import("./pages/Legal"));
 
 function PageLoader() {
   return <div className="p-10 font-mono text-zinc-400">Loading...</div>;
@@ -36,6 +37,8 @@ export default function App() {
             <Route path="/login" element={<Auth mode="login" />} />
             <Route path="/signup" element={<Auth mode="signup" />} />
             <Route path="/pricing" element={<Pricing />} />
+            <Route path="/terms" element={<Legal type="terms" />} />
+            <Route path="/privacy" element={<Legal type="privacy" />} />
             <Route path="/billing/success" element={<BillingSuccess />} />
 
             <Route path="/app" element={<AppLayout />}>
