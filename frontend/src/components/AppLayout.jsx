@@ -2,7 +2,7 @@ import { Link, NavLink, Navigate, Outlet } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
 import api from "../api";
-import { LayoutDashboard, Package, Megaphone, Rocket, LogOut, Zap, Settings as SettingsIcon, Users, Shield, CreditCard, BarChart3, WandSparkles, UserCircle, Cable } from "lucide-react";
+import { LayoutDashboard, Package, Megaphone, Rocket, LogOut, Zap, Settings as SettingsIcon, Users, Shield, CreditCard, BarChart3, WandSparkles, UserCircle, Cable, DollarSign } from "lucide-react";
 
 export default function AppLayout() {
   const { user, logout, loading } = useAuth();
@@ -41,6 +41,7 @@ export default function AppLayout() {
         <nav className="px-2 pb-2 flex gap-1 overflow-x-auto">
           <NavLink to="/app" end className={link}>Dashboard</NavLink>
           <NavLink to="/app/products" className={link}>Builder</NavLink>
+          <NavLink to="/app/money" className={link}>Money</NavLink>
           <NavLink to="/app/machine" className={link}>Auto Mode</NavLink>
           <NavLink to="/app/billing" className={link}>Billing</NavLink>
           <NavLink to="/app/platforms" className={link}>Platforms</NavLink>
@@ -65,6 +66,9 @@ export default function AppLayout() {
           </NavLink>
           <NavLink to="/app/products" className={link} data-testid="nav-products">
             <Package className="w-4 h-4" /> Builder
+          </NavLink>
+          <NavLink to="/app/money" className={link} data-testid="nav-money">
+            <DollarSign className="w-4 h-4" /> Money Path
           </NavLink>
           <NavLink to="/app/campaigns" className={link} data-testid="nav-campaigns">
             <Megaphone className="w-4 h-4" /> Ad Campaigns
