@@ -11,35 +11,35 @@ const TIERS = [
     id: "free",
     name: "Free",
     price: "$0",
-    limit: "Try the builder",
+    limit: "Preview product concepts",
     border: "border-zinc-800",
     badge: null,
     note: "No card required",
     cta: "Continue free",
-    perks: ["1-3 product launches", "Basic TikTok content", "First result tracking", "Manual launch flow"],
+    perks: ["Product quality preview", "Partial outline and value bullets", "See sellability score", "Unlock only the products you want"],
   },
   {
     id: "starter",
     name: "Starter",
     price: "$29",
-    limit: "$14.50 first month",
+    limit: "All packages included",
     border: "border-[#FFD600]",
     badge: "START HERE",
-    note: "Founder offer: 50% off your first month, then $29/mo",
-    cta: "Start Starter - $14.50",
+    note: "Founder offer: 50% off your first month, then $29/mo. Best if you will build more than three products.",
+    cta: "Unlock all - $14.50",
     featured: true,
-    perks: ["50 launch loops/mo", "More remix attempts", "Traffic content for every product", "Email support"],
+    perks: ["Full product packages", "Complete store upload bundles", "Cover PNG + promo videos", "Campaigns, publishing, and tracking"],
   },
   {
     id: "pro",
     name: "Pro",
     price: "$49.99",
-    limit: "After you have traction",
+    limit: "Higher-volume product lab",
     border: "border-white",
     badge: null,
     note: "For users already launching often",
     cta: "Upgrade to Pro",
-    perks: ["Batch product launches", "Advanced content variations", "Faster cycles", "Real store publishing + analytics"],
+    perks: ["More product quality cycles", "Advanced content variations", "Faster testing", "Real store publishing + analytics"],
   },
   {
     id: "enterprise",
@@ -118,12 +118,12 @@ export default function Pricing() {
         </header>
 
         <div className="max-w-7xl mx-auto px-6 py-24">
-          <div className="font-mono text-xs uppercase tracking-[0.3em] text-[#FFD600] mb-4">Start small. Scale after proof.</div>
+          <div className="font-mono text-xs uppercase tracking-[0.3em] text-[#FFD600] mb-4">Preview free. Pay for complete products.</div>
           <h1 className="font-heading text-6xl lg:text-8xl uppercase mb-4 leading-[0.9]">
-            Get more launches. <span className="text-[#FFD600]">Keep momentum.</span>
+            Pay when the product is worth unlocking.
           </h1>
           <p className="text-lg text-zinc-300 max-w-2xl mb-6">
-            The easiest paid step is Starter. Start for $14.50 today, launch more products, test more angles, and keep momentum.
+            Free users see a premium preview. Unlock one complete product package for $9, or use Starter when you want every full product, cover, store bundle, promo video, campaign, and launch tool included.
           </p>
           <div className="mb-10 grid max-w-3xl grid-cols-1 gap-px border border-zinc-800 bg-zinc-800 sm:grid-cols-3">
             <TrustItem icon={<ShieldCheck />} label="Secure Stripe checkout" />

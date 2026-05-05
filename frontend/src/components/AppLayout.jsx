@@ -135,7 +135,7 @@ export default function AppLayout() {
             className="block mt-3 text-center bg-[#FFD600] text-black font-mono text-xs uppercase tracking-widest py-2 btn-hard"
             data-testid="upgrade-btn"
           >
-            Start Starter - $14.50
+            Unlock all - $14.50
           </Link>
         </div>
 

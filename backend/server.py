@@ -76,6 +76,7 @@ log = logging.getLogger("filthy")
 
 # ---------- Constants ----------
 PLAN_LIMITS = {"free": 5, "starter": 50, "pro": 500, "enterprise": 999999}
+PRODUCT_UNLOCK_PRICE_USD = float(os.environ.get("PRODUCT_UNLOCK_PRICE_USD", "9"))
 STORES = [
     {"id": "gumroad", "name": "Gumroad", "real": True},
     {"id": "stan_store", "name": "Stan Store", "real": True},
@@ -157,6 +158,8 @@ class Product(BaseModel):
     tiktok_posts_count: int = 0
     completeness_score: int = 100
     manual_assets: List[str] = []
+    is_unlocked: bool = True
+    unlock_price_usd: float = PRODUCT_UNLOCK_PRICE_USD
 
 
 class UpdateProductReq(BaseModel):
@@ -1096,8 +1099,9 @@ async def generate_product(req: GenerateProductReq, user=Depends(current_user)):
     # Allow per-user OpenAI / Anthropic override (else platform Emergent LLM key)
     # (For now we stick to Claude via Emergent key — platform-paid.)
     sys_msg = (
-        "You are FiiLTHY.AI, a ruthless digital-product strategist for creator-economy hustlers. "
-        "Generate raw, edgy, conversion-focused digital products. "
+        "You are FiiLTHY.AI's premium product quality lead. "
+        "Generate complete, practical, specific digital products that a real buyer can understand, download, and use immediately. "
+        "Prioritize usefulness, specificity, clear outcomes, strong packaging, and honest sellability over hype. "
         "Always respond with STRICT VALID JSON only — no commentary, no markdown fences."
     )
     prompt = f"""Create a brand-new sellable digital product.
@@ -1111,14 +1115,14 @@ Notes: {req.extra_notes or 'none'}
 Return JSON with EXACT keys:
 {{
   "title": "string (bold, hook-style, max 8 words)",
-  "tagline": "string (one punchy line)",
-  "description": "string (2-3 sentence sales-ready blurb)",
+  "tagline": "string (one clear outcome-driven promise)",
+  "description": "string (3-4 polished store-ready sentences explaining who it is for, what they get, and the outcome)",
   "target_audience": "string (specific persona)",
   "price": number (USD, no currency symbol),
-  "bullet_features": ["6 sharp benefit-driven bullets"],
-  "outline": ["7-10 chapter/module/section titles"],
-  "sales_copy": "string (~120 words punchy direct-response copy)",
-  "cover_concept": "string (one-line visual brief for the cover)"
+  "bullet_features": ["8 specific benefit-driven bullets that describe usable deliverables"],
+  "outline": ["10-12 concrete chapters/modules/sections with practical names"],
+  "sales_copy": "string (220-320 words polished direct-response copy with problem, outcome, contents, and CTA)",
+  "cover_concept": "string (premium visual brief with layout, typography, color, and subject cues)"
 }}"""
     try:
         raw = await llm_json(sys_msg, prompt, session_id=f"product-{user['id']}-{uuid.uuid4().hex[:8]}")
@@ -1147,6 +1151,8 @@ Return JSON with EXACT keys:
         "launched_stores": [],
     }
     await db.products.insert_one(product.copy())
+    await _decorate_product_access(product, user)
+    _preview_product_if_locked(product)
     return Product(**product)
 
 
@@ -1154,19 +1160,8 @@ Return JSON with EXACT keys:
 async def list_products(user=Depends(current_user)):
     rows = await db.products.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
     for row in rows:
-        tt_count = await db.tiktok_posts.count_documents({"product_id": row["id"], "user_id": user["id"]})
-        row["tiktok_posts_count"] = max(3, int(tt_count or 0))
-        required = [
-            bool(row.get("title")),
-            bool(row.get("description")),
-            bool(row.get("sales_copy")),
-            bool(row.get("cover_concept")),
-            bool(row.get("bullet_features")),
-            bool(row.get("outline")),
-            row["tiktok_posts_count"] >= 3,
-        ]
-        row["completeness_score"] = int(round(sum(1 for x in required if x) / len(required) * 100))
-        row["manual_assets"] = ["product.pdf", "cover.png", "store_upload_kit.md", "sales_copy.txt", "3+ promo videos"]
+        await _decorate_product_access(row, user)
+        _preview_product_if_locked(row)
     return [Product(**r) for r in rows]
 
 
@@ -1175,6 +1170,8 @@ async def get_product(pid: str, user=Depends(current_user)):
     p = await db.products.find_one({"id": pid, "user_id": user["id"]}, {"_id": 0})
     if not p:
         raise HTTPException(404, "Product not found")
+    await _decorate_product_access(p, user)
+    _preview_product_if_locked(p)
     return Product(**p)
 
 
@@ -1197,6 +1194,8 @@ async def update_product(pid: str, req: UpdateProductReq, user=Depends(current_u
         await db.products.update_one({"id": pid, "user_id": user["id"]}, {"$set": changes})
 
     updated = await db.products.find_one({"id": pid, "user_id": user["id"]}, {"_id": 0})
+    await _decorate_product_access(updated, user)
+    _preview_product_if_locked(updated)
     return Product(**updated)
 
 
@@ -1224,11 +1223,64 @@ def _safe_filename(text: str) -> str:
     return (s or "product")[:60]
 
 
+async def _has_product_access(product: Dict[str, Any], user: Dict[str, Any]) -> bool:
+    if (user.get("plan") or "free") != "free":
+        return True
+    unlocked = await db.product_unlocks.find_one(
+        {"user_id": user["id"], "product_id": product["id"], "payment_status": "paid"},
+        {"_id": 0},
+    )
+    return bool(unlocked)
+
+
+async def _decorate_product_access(product: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+    tt_count = await db.tiktok_posts.count_documents({"product_id": product["id"], "user_id": user["id"]})
+    product["tiktok_posts_count"] = max(3, int(tt_count or 0))
+    required = [
+        bool(product.get("title")),
+        bool(product.get("description")),
+        bool(product.get("sales_copy")),
+        bool(product.get("cover_concept")),
+        bool(product.get("bullet_features")),
+        bool(product.get("outline")),
+        product["tiktok_posts_count"] >= 3,
+    ]
+    product["completeness_score"] = int(round(sum(1 for x in required if x) / len(required) * 100))
+    product["manual_assets"] = ["product.pdf", "cover.png", "store_upload_kit.md", "sales_copy.txt", "3+ promo videos"]
+    product["is_unlocked"] = await _has_product_access(product, user)
+    product["unlock_price_usd"] = PRODUCT_UNLOCK_PRICE_USD
+    return product
+
+
+def _preview_product_if_locked(product: Dict[str, Any]) -> Dict[str, Any]:
+    if product.get("is_unlocked"):
+        return product
+    product["description"] = str(product.get("description") or "")[:260]
+    product["bullet_features"] = (product.get("bullet_features") or [])[:2]
+    product["outline"] = (product.get("outline") or [])[:2]
+    product["sales_copy"] = "Full sales copy unlocks with the complete product package."
+    product["cover_concept"] = str(product.get("cover_concept") or "")[:180]
+    return product
+
+
+async def _require_product_access(product: Dict[str, Any], user: Dict[str, Any]):
+    if not await _has_product_access(product, user):
+        raise HTTPException(
+            402,
+            {
+                "code": "PRODUCT_LOCKED",
+                "message": f"Unlock this complete product package for ${PRODUCT_UNLOCK_PRICE_USD:g}.",
+                "unlock_price_usd": PRODUCT_UNLOCK_PRICE_USD,
+            },
+        )
+
+
 @api.get("/products/{pid}/download/pdf")
 async def download_product_pdf(pid: str, user=Depends(current_user)):
     bundle = await _fetch_bundle(pid, user["id"])
     if not bundle:
         raise HTTPException(404, "Product not found")
+    await _require_product_access(bundle["product"], user)
     code = await referral_service.ensure_user_referral(user)
     backend = os.environ.get("BACKEND_URL", "").rstrip("/")
     referral_url = f"{backend}/signup?ref={code}" if backend else None
@@ -1246,6 +1298,7 @@ async def download_product_cover(pid: str, user=Depends(current_user)):
     bundle = await _fetch_bundle(pid, user["id"])
     if not bundle:
         raise HTTPException(404, "Product not found")
+    await _require_product_access(bundle["product"], user)
     cover_bytes = build_cover_png(bundle["product"])
     fname = f"{_safe_filename(bundle['product'].get('title', 'product'))}-cover.png"
     return Response(
@@ -1260,6 +1313,7 @@ async def download_product_bundle(pid: str, user=Depends(current_user)):
     bundle = await _fetch_bundle(pid, user["id"])
     if not bundle:
         raise HTTPException(404, "Product not found")
+    await _require_product_access(bundle["product"], user)
     code = await referral_service.ensure_user_referral(user)
     backend = os.environ.get("BACKEND_URL", "").rstrip("/")
     referral_url = f"{backend}/signup?ref={code}" if backend else None
@@ -1275,10 +1329,12 @@ async def download_product_bundle(pid: str, user=Depends(current_user)):
     )
 
 
-async def _product_post_for_video(pid: str, content_id: str, user_id: str):
+async def _product_post_for_video(pid: str, content_id: str, user: Dict[str, Any]):
+    user_id = user["id"]
     bundle = await _fetch_bundle(pid, user_id)
     if not bundle:
         raise HTTPException(404, "Product not found")
+    await _require_product_access(bundle["product"], user)
     posts = bundle["tiktok_posts"]
     if not posts:
         posts = fallback_tiktok_posts(bundle["product"], count=5)
@@ -1295,7 +1351,7 @@ async def _product_post_for_video(pid: str, content_id: str, user_id: str):
 
 @api.get("/products/{pid}/promo-video/{content_id}")
 async def download_product_promo_video(pid: str, content_id: str, request: Request, user=Depends(current_user)):
-    product, post, resolved_content_id = await _product_post_for_video(pid, content_id, user["id"])
+    product, post, resolved_content_id = await _product_post_for_video(pid, content_id, user)
     backend_base = _tracking_base(request)
     cta_url = _track_url(backend_base, pid, "tiktok", resolved_content_id) if backend_base else ""
     video_bytes = build_promo_video_mp4(product, post, cta_url=cta_url)
@@ -1312,6 +1368,7 @@ async def download_product_promo_videos_zip(pid: str, request: Request, user=Dep
     bundle = await _fetch_bundle(pid, user["id"])
     if not bundle:
         raise HTTPException(404, "Product not found")
+    await _require_product_access(bundle["product"], user)
     posts = bundle["tiktok_posts"] or fallback_tiktok_posts(bundle["product"], count=5)
     backend_base = _tracking_base(request)
     safe = _safe_filename(bundle["product"].get("title", "product"))
@@ -1333,6 +1390,17 @@ async def download_all_products(user=Depends(current_user)):
     products = await db.products.find({"user_id": user["id"]}, {"_id": 0}).to_list(1000)
     if not products:
         raise HTTPException(404, "No products to download")
+    if (user.get("plan") or "free") == "free":
+        paid_ids = {
+            row["product_id"]
+            for row in await db.product_unlocks.find(
+                {"user_id": user["id"], "payment_status": "paid"},
+                {"_id": 0, "product_id": 1},
+            ).to_list(1000)
+        }
+        products = [p for p in products if p["id"] in paid_ids]
+        if not products:
+            raise HTTPException(402, {"code": "PRODUCT_LOCKED", "message": "Unlock at least one product package first."})
     items = []
     for p in products:
         camps = await db.campaigns.find({"product_id": p["id"], "user_id": user["id"]}, {"_id": 0}).to_list(100)
@@ -1355,6 +1423,7 @@ async def generate_campaign(req: CampaignReq, user=Depends(current_user)):
     product = await db.products.find_one({"id": req.product_id, "user_id": user["id"]}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found")
+    await _require_product_access(product, user)
     await _check_and_increment_usage(user)
 
     sys_msg = (
@@ -1436,6 +1505,11 @@ Return JSON with EXACT keys:
 async def list_campaigns(product_id: Optional[str] = None, user=Depends(current_user)):
     q = {"user_id": user["id"]}
     if product_id:
+        product = await db.products.find_one({"id": product_id, "user_id": user["id"]}, {"_id": 0})
+        if not product:
+            raise HTTPException(404, "Product not found")
+        if not await _has_product_access(product, user):
+            return []
         q["product_id"] = product_id
     rows = await db.campaigns.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     return [Campaign(**r) for r in rows]
@@ -1458,6 +1532,7 @@ async def launch_product(req: LaunchReq, user=Depends(current_user)):
     product = await db.products.find_one({"id": req.product_id, "user_id": user["id"]}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found")
+    await _require_product_access(product, user)
     target_stores = req.stores or [s["id"] for s in STORES]
     slug = _slugify(product["title"])
     now = datetime.now(timezone.utc).isoformat()
@@ -1933,6 +2008,7 @@ async def tiktok_generate(product_id: str, user=Depends(current_user)):
     product = await db.products.find_one({"id": product_id, "user_id": user["id"]}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found")
+    await _require_product_access(product, user)
     await _check_and_increment_usage(user)
     try:
         posts = await generate_tiktok_posts(product, count=5)
@@ -1959,6 +2035,22 @@ async def tiktok_export(product_id: str, request: Request, user=Depends(current_
     product = await db.products.find_one({"id": product_id, "user_id": user["id"]}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found")
+    await _decorate_product_access(product, user)
+    if not product.get("is_unlocked"):
+        return {
+            "product_title": product["title"],
+            "product_url": "",
+            "posts": [],
+            "count": 0,
+            "locked": True,
+            "unlock_price_usd": PRODUCT_UNLOCK_PRICE_USD,
+            "video_generation": {
+                "configured": True,
+                "status": "locked",
+                "message": f"Unlock this product package for ${PRODUCT_UNLOCK_PRICE_USD:g} to get the rendered promo videos and full posting kit.",
+                "upload_url": "https://www.tiktok.com/upload",
+            },
+        }
     rows = await db.tiktok_posts.find(
         {"product_id": product_id, "user_id": user["id"]}, {"_id": 0, "user_id": 0}
     ).sort("created_at", -1).to_list(100)

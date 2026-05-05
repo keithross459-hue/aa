@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FileDown,
   Eye,
+  LockKeyhole,
   Loader2,
   Megaphone,
   MousePointerClick,
@@ -85,6 +86,22 @@ export default function ProductDetail() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const session = params.get("product_unlocked");
+    if (!session) return;
+    let alive = true;
+    (async () => {
+      try {
+        await api.get(`/billing/status/${session}`);
+        if (alive) await Promise.all([load(), refresh()]);
+      } catch {
+        // Webhook/status may still be settling; the unlock CTA remains available.
+      }
+    })();
+    return () => { alive = false; };
+  }, [load, refresh]);
+
   const generateCampaign = async () => {
     setErr("");
     setBusy(true);
@@ -158,8 +175,17 @@ export default function ProductDetail() {
     URL.revokeObjectURL(url);
   };
 
+  const unlockProduct = async () => {
+    const r = await api.post("/billing/create-product-checkout", {
+      product_id: id,
+      origin_url: window.location.origin,
+    });
+    window.location.href = r.data.url;
+  };
+
   if (!p || !draft) return <div className="p-12 font-mono text-zinc-400">Loading...</div>;
   const realListings = listings.filter((l) => l.status === "LIVE" && l.real);
+  const locked = p.is_unlocked === false;
 
   return (
     <div className="p-6 lg:p-10" data-testid="product-detail-page">
@@ -182,7 +208,7 @@ export default function ProductDetail() {
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="min-w-0 flex-1">
             <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#FFD600]">Sellability workspace</div>
-            {editing ? (
+            {editing && !locked ? (
               <div className="space-y-3">
                 <EditInput value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} testid="edit-title" />
                 <EditInput value={draft.tagline} onChange={(v) => setDraft({ ...draft, tagline: v })} />
@@ -205,18 +231,33 @@ export default function ProductDetail() {
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save edits
               </button>
             ) : (
-              <button onClick={() => setEditing(true)} className="flex items-center gap-2 border border-zinc-700 px-5 py-3 font-mono text-xs uppercase tracking-widest text-white transition-colors hover:bg-white hover:text-black" data-testid="edit-product-btn">
-                <Pencil className="h-4 w-4" /> Edit before launch
+              <button onClick={locked ? unlockProduct : () => setEditing(true)} className="flex items-center gap-2 border border-zinc-700 px-5 py-3 font-mono text-xs uppercase tracking-widest text-white transition-colors hover:bg-white hover:text-black" data-testid="edit-product-btn">
+                {locked ? <LockKeyhole className="h-4 w-4" /> : <Pencil className="h-4 w-4" />} {locked ? "Unlock to edit" : "Edit before launch"}
               </button>
             )}
-            <button onClick={() => download("pdf")} className="btn-hard flex items-center gap-2 bg-[#FFD600] px-5 py-3 font-mono text-xs uppercase tracking-widest text-black" data-testid="download-pdf-btn">
+            <button onClick={() => locked ? unlockProduct() : download("pdf")} className="btn-hard flex items-center gap-2 bg-[#FFD600] px-5 py-3 font-mono text-xs uppercase tracking-widest text-black" data-testid="download-pdf-btn">
               <FileDown className="h-4 w-4" /> Download PDF
             </button>
-            <button onClick={() => download("bundle")} className="flex items-center gap-2 border border-zinc-700 px-5 py-3 font-mono text-xs uppercase tracking-widest text-white transition-colors hover:bg-white hover:text-black" data-testid="download-bundle-btn">
+            <button onClick={() => locked ? unlockProduct() : download("bundle")} className="flex items-center gap-2 border border-zinc-700 px-5 py-3 font-mono text-xs uppercase tracking-widest text-white transition-colors hover:bg-white hover:text-black" data-testid="download-bundle-btn">
               <Download className="h-4 w-4" /> Store upload bundle
             </button>
           </div>
         </div>
+
+        {locked && (
+          <div className="mt-6 border border-[#FFD600] bg-[#FFD600]/10 p-5">
+            <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.24em] text-[#FFD600]">
+              <LockKeyhole className="h-3 w-3" /> Premium product preview
+            </div>
+            <div className="font-heading text-3xl uppercase">Unlock the complete product package</div>
+            <p className="mt-2 max-w-3xl text-sm text-zinc-300">
+              You can preview the concept now. Unlock for ${p.unlock_price_usd || 9} to get the full product, complete outline, sales copy, store upload bundle, cover PNG, ad campaigns, and downloadable promo videos.
+            </p>
+            <button onClick={unlockProduct} className="btn-hard mt-4 inline-flex items-center gap-2 bg-[#FFD600] px-5 py-3 font-mono text-xs uppercase tracking-widest text-black" data-testid="unlock-product-btn">
+              <LockKeyhole className="h-4 w-4" /> Unlock package
+            </button>
+          </div>
+        )}
 
         <div className="mt-6 border border-[#FFD600]/30 bg-black p-4">
           <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.24em] text-[#FFD600]">Manual launch ready</div>
@@ -294,8 +335,8 @@ export default function ProductDetail() {
 
       <PanelHeader title={`Ad campaigns - ${campaigns.length}`} icon={<Megaphone className="h-4 w-4 text-[#FFD600]" />}>
         <input value={angle} onChange={(e) => setAngle(e.target.value)} placeholder="angle override" className="border border-zinc-800 bg-transparent px-3 py-2 font-mono text-xs text-white focus:border-[#FFD600] focus:outline-none" data-testid="angle-input" />
-        <button onClick={generateCampaign} disabled={busy} className="btn-hard flex items-center gap-2 bg-[#FFD600] px-5 py-2 font-mono text-xs uppercase tracking-widest text-black disabled:opacity-60" data-testid="generate-campaign-btn">
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Megaphone className="h-3 w-3" />} Create campaign
+        <button onClick={locked ? unlockProduct : generateCampaign} disabled={busy} className="btn-hard flex items-center gap-2 bg-[#FFD600] px-5 py-2 font-mono text-xs uppercase tracking-widest text-black disabled:opacity-60" data-testid="generate-campaign-btn">
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : locked ? <LockKeyhole className="h-3 w-3" /> : <Megaphone className="h-3 w-3" />} {locked ? "Unlock campaigns" : "Create campaign"}
         </button>
       </PanelHeader>
       {err && String(err).toLowerCase().includes("upgrade") && (
@@ -305,8 +346,8 @@ export default function ProductDetail() {
 
       <div className="mb-10 border border-zinc-800 bg-zinc-950">
         <PanelHeader title={`Real store publishing - ${realListings.length} live`} icon={<Rocket className="h-4 w-4 text-[#FF3333]" />}>
-          <button onClick={launchAll} disabled={launchBusy || editing} className="btn-hard btn-hard-red flex items-center gap-2 bg-[#FF3333] px-5 py-2 font-mono text-xs uppercase tracking-widest text-white disabled:opacity-60" data-testid="launch-all-btn">
-            {launchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Rocket className="h-3 w-3" />} Launch product
+          <button onClick={locked ? unlockProduct : launchAll} disabled={launchBusy || editing} className="btn-hard btn-hard-red flex items-center gap-2 bg-[#FF3333] px-5 py-2 font-mono text-xs uppercase tracking-widest text-white disabled:opacity-60" data-testid="launch-all-btn">
+            {launchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : locked ? <LockKeyhole className="h-3 w-3" /> : <Rocket className="h-3 w-3" />} {locked ? "Unlock to launch" : "Launch product"}
           </button>
         </PanelHeader>
         {editing && <div className="border-b border-[#FFD600] bg-[#FFD600]/10 px-6 py-3 font-mono text-xs uppercase tracking-widest text-[#FFD600]">Save edits before publishing.</div>}

@@ -121,16 +121,16 @@ export default function Dashboard() {
                 <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">
                   <Zap className="h-3 w-3" /> Founder offer
                 </div>
-                <div className="font-heading text-2xl uppercase">50 launch loops for $14.50</div>
+                <div className="font-heading text-2xl uppercase">Full packages for $14.50</div>
                 <p className="mt-2 text-sm text-zinc-300">
-                  Keep testing while the first idea is fresh. Starter unlocks more products, remixes, and campaign angles.
+                  Free previews show the idea. Starter unlocks full products, store bundles, covers, videos, campaigns, and launch tools.
                 </p>
                 <Link
                   to="/pricing?checkout=starter"
                   className="btn-hard mt-4 inline-flex items-center gap-2 bg-[#FFD600] px-4 py-2 font-mono text-xs uppercase tracking-widest text-black"
                   data-testid="dashboard-starter-checkout"
                 >
-                  Start Starter <ArrowUpRight className="h-3 w-3" />
+                  Unlock all <ArrowUpRight className="h-3 w-3" />
                 </Link>
               </div>
             )}

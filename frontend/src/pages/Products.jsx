@@ -186,6 +186,10 @@ export default function Products() {
   };
 
   const downloadProductAsset = async (product, kind) => {
+    if (product.is_unlocked === false) {
+      await unlockProduct(product);
+      return;
+    }
     const map = {
       bundle: { path: `/products/${product.id}/download/bundle`, type: "application/zip", suffix: "store-upload-bundle.zip" },
       cover: { path: `/products/${product.id}/download/cover`, type: "image/png", suffix: "cover.png" },
@@ -204,6 +208,14 @@ export default function Products() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  };
+
+  const unlockProduct = async (product) => {
+    const r = await api.post("/billing/create-product-checkout", {
+      product_id: product.id,
+      origin_url: window.location.origin,
+    });
+    window.location.href = r.data.url;
   };
 
   return (
@@ -383,6 +395,7 @@ export default function Products() {
                 product={p}
                 onDelete={del}
                 onDownload={downloadProductAsset}
+                onUnlock={unlockProduct}
               />
             ))}
           </div>
@@ -392,10 +405,11 @@ export default function Products() {
   );
 }
 
-function ProductInventoryCard({ product: p, onDelete, onDownload }) {
+function ProductInventoryCard({ product: p, onDelete, onDownload, onUnlock }) {
   const complete = Math.max(0, Math.min(100, p.completeness_score || 100));
   const videoCount = Math.max(3, p.tiktok_posts_count || 3);
-  const status = p.winners?.length ? "Winning product" : p.launched_stores?.length ? "Live test" : "Manual ready";
+  const locked = p.is_unlocked === false;
+  const status = locked ? "Preview locked" : p.winners?.length ? "Winning product" : p.launched_stores?.length ? "Live test" : "Manual ready";
 
   return (
     <div className="bg-zinc-950 p-5" data-testid={`product-row-${p.id}`}>
@@ -440,10 +454,22 @@ function ProductInventoryCard({ product: p, onDelete, onDownload }) {
             <AssetPill icon={<Flame className="h-3 w-3" />} label="Ad copy" />
           </div>
 
+          {locked && (
+            <div className="mt-4 border border-[#FFD600] bg-[#FFD600]/10 p-3">
+              <div className="font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">Premium preview</div>
+              <p className="mt-1 text-sm text-zinc-300">Unlock this complete product package for ${p.unlock_price_usd || 9} to reveal all content, downloads, cover, and videos.</p>
+            </div>
+          )}
+
           <div className="mt-5 flex flex-wrap gap-2">
             <Link to={`/app/products/${p.id}`} className="btn-hard btn-hard-red inline-flex items-center gap-2 bg-[#FF3333] px-4 py-2 font-mono text-[10px] uppercase tracking-widest text-white" data-testid={`open-${p.id}`}>
               Open <ArrowRight className="h-3 w-3" />
             </Link>
+            {locked && (
+              <button onClick={() => onUnlock(p)} className="btn-hard inline-flex items-center gap-2 bg-[#FFD600] px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-black">
+                Unlock ${p.unlock_price_usd || 9}
+              </button>
+            )}
             <button onClick={() => onDownload(p, "bundle")} className="inline-flex items-center gap-2 border border-zinc-700 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-white hover:text-black">
               <Download className="h-3 w-3" /> Bundle
             </button>

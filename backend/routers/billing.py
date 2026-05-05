@@ -26,6 +26,7 @@ router = APIRouter(prefix="/api/billing", tags=["billing"])
 webhook_router = APIRouter(prefix="/api/webhook", tags=["webhook"])
 
 PLAN_LIMITS = {"free": 5, "starter": 50, "pro": 500, "enterprise": 999999}
+PRODUCT_UNLOCK_PRICE_USD = float(os.environ.get("PRODUCT_UNLOCK_PRICE_USD", "9"))
 
 
 class CheckoutReq(BaseModel):
@@ -41,6 +42,11 @@ class CancelReq(BaseModel):
 
 class UpgradeReq(BaseModel):
     plan: Literal["starter", "pro", "enterprise"]
+
+
+class ProductCheckoutReq(BaseModel):
+    product_id: str
+    origin_url: str
 
 
 @router.get("/plans")
@@ -93,6 +99,51 @@ async def create_checkout(req: CheckoutReq, user=Depends(current_user)):
     return {"url": res["url"], "session_id": res["session_id"]}
 
 
+@router.post("/create-product-checkout")
+async def create_product_checkout(req: ProductCheckoutReq, user=Depends(current_user)):
+    product = await db.products.find_one({"id": req.product_id, "user_id": user["id"]}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    existing = await db.product_unlocks.find_one(
+        {"product_id": req.product_id, "user_id": user["id"], "payment_status": "paid"},
+        {"_id": 0},
+    )
+    if existing or (user.get("plan") or "free") != "free":
+        return {"already_unlocked": True, "url": f"{req.origin_url.rstrip('/')}/app/products/{req.product_id}"}
+
+    origin = req.origin_url.rstrip("/")
+    success_url = f"{origin}/app/products/{req.product_id}?product_unlocked={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin}/app/products/{req.product_id}?unlock_canceled=1"
+    res = await stripe_service.create_product_unlock_session(
+        product_id=req.product_id,
+        product_title=product.get("title", "Product"),
+        amount_usd=PRODUCT_UNLOCK_PRICE_USD,
+        user_id=user["id"],
+        user_email=user["email"],
+        success_url=success_url,
+        cancel_url=cancel_url,
+    )
+    if not res.get("ok"):
+        raise HTTPException(500, res.get("error", "stripe_error"))
+
+    await db.payment_transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "session_id": res["session_id"],
+        "user_id": user["id"],
+        "email": user["email"],
+        "product_id": req.product_id,
+        "product_title": product.get("title"),
+        "amount": PRODUCT_UNLOCK_PRICE_USD,
+        "currency": "usd",
+        "mode": "payment",
+        "purchase_type": "product_unlock",
+        "payment_status": "pending",
+        "status": "initiated",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"url": res["url"], "session_id": res["session_id"], "amount_usd": PRODUCT_UNLOCK_PRICE_USD}
+
+
 @router.get("/status/{session_id}")
 async def checkout_status(session_id: str, user=Depends(current_user)):
     tx = await db.payment_transactions.find_one({"session_id": session_id, "user_id": user["id"]}, {"_id": 0})
@@ -125,8 +176,33 @@ async def checkout_status(session_id: str, user=Depends(current_user)):
     customer = s.get("customer")
     customer_id = customer if isinstance(customer, str) else (customer.get("id") if isinstance(customer, dict) else None)
 
+    if tx.get("purchase_type") == "product_unlock" and st_payment_status == "paid" and tx.get("payment_status") != "paid":
+        product_id = tx.get("product_id")
+        await db.product_unlocks.update_one(
+            {"user_id": user["id"], "product_id": product_id},
+            {"$set": {
+                "id": str(uuid.uuid4()),
+                "user_id": user["id"],
+                "product_id": product_id,
+                "session_id": session_id,
+                "amount": tx.get("amount", PRODUCT_UNLOCK_PRICE_USD),
+                "currency": tx.get("currency", "usd"),
+                "payment_status": "paid",
+                "unlocked_at": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+        await db.payment_transactions.update_one(
+            {"session_id": session_id},
+            {"$set": {
+                "payment_status": "paid",
+                "status": st_status,
+                "paid_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+
     # Subscription checkouts finalize as "complete" + payment_status "paid"
-    if st_payment_status == "paid" and tx.get("payment_status") != "paid":
+    if tx.get("purchase_type") != "product_unlock" and st_payment_status == "paid" and tx.get("payment_status") != "paid":
         plan = tx.get("plan", "starter")
         await db.users.update_one(
             {"id": user["id"]},
@@ -362,13 +438,40 @@ async def stripe_webhook(request: Request):
     meta = obj.get("metadata") or {}
     user_id = meta.get("filthy_user_id")
     plan = meta.get("filthy_plan")
+    purchase_type = meta.get("filthy_purchase_type")
+    product_id = meta.get("filthy_product_id")
 
     try:
         if etype == "checkout.session.completed":
             session_id = obj.get("id")
             sub_id = obj.get("subscription")
             customer_id = obj.get("customer")
-            if user_id and plan:
+            if purchase_type == "product_unlock" and user_id and product_id:
+                tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+                await db.product_unlocks.update_one(
+                    {"user_id": user_id, "product_id": product_id},
+                    {"$set": {
+                        "id": str(uuid.uuid4()),
+                        "user_id": user_id,
+                        "product_id": product_id,
+                        "session_id": session_id,
+                        "amount": (tx or {}).get("amount", PRODUCT_UNLOCK_PRICE_USD),
+                        "currency": (tx or {}).get("currency", "usd"),
+                        "payment_status": "paid",
+                        "unlocked_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                    upsert=True,
+                )
+                await db.payment_transactions.update_one(
+                    {"session_id": session_id},
+                    {"$set": {
+                        "payment_status": "paid",
+                        "status": "complete",
+                        "stripe_customer_id": customer_id,
+                        "paid_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                )
+            elif user_id and plan:
                 await db.users.update_one(
                     {"id": user_id},
                     {"$set": {

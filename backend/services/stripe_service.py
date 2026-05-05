@@ -159,6 +159,56 @@ async def create_checkout_session(
         return {"ok": False, "error": str(ex)}
 
 
+async def create_product_unlock_session(
+    product_id: str,
+    product_title: str,
+    amount_usd: float,
+    user_id: str,
+    user_email: str,
+    success_url: str,
+    cancel_url: str,
+) -> Dict[str, Any]:
+    if not configured():
+        return {"ok": False, "error": "stripe_not_configured"}
+    try:
+        session = await _to_thread(
+            stripe.checkout.Session.create,
+            mode="payment",
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "unit_amount": int(round(float(amount_usd) * 100)),
+                    "product_data": {
+                        "name": f"FiiLTHY Product Package - {product_title[:80]}",
+                        "description": "One-time unlock for the complete product, store package, cover, sales copy, and promo videos.",
+                        "metadata": {"filthy_product_id": product_id},
+                    },
+                },
+                "quantity": 1,
+            }],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            customer_email=user_email,
+            metadata={
+                "filthy_user_id": user_id,
+                "filthy_product_id": product_id,
+                "filthy_purchase_type": "product_unlock",
+            },
+            payment_intent_data={
+                "metadata": {
+                    "filthy_user_id": user_id,
+                    "filthy_product_id": product_id,
+                    "filthy_purchase_type": "product_unlock",
+                }
+            },
+            billing_address_collection="auto",
+        )
+        return {"ok": True, "session_id": session.id, "url": session.url}
+    except Exception as ex:
+        log.error(f"create_product_unlock_session failed: {ex}")
+        return {"ok": False, "error": str(ex)}
+
+
 async def get_session(session_id: str) -> Dict[str, Any]:
     try:
         s = await _to_thread(
