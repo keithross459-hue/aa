@@ -421,7 +421,10 @@ def _env_configured(provider: str, required: List[str]) -> bool:
 def _tiktok_config() -> Dict[str, str]:
     client_key = os.environ.get("TIKTOK_CLIENT_KEY") or os.environ.get("TIKTOK_CLIENT_ID") or ""
     client_secret = os.environ.get("TIKTOK_CLIENT_SECRET") or ""
-    backend_redirect = f"{os.environ.get('BACKEND_URL', '').rstrip('/')}/api/auth/tiktok/callback"
+    backend_base = os.environ.get("TIKTOK_BACKEND_URL") or os.environ.get("BACKEND_URL", "")
+    if "api.fiilthy.ai" in backend_base or not backend_base:
+        backend_base = "https://fiilthy-ai-production-backend.onrender.com"
+    backend_redirect = f"{backend_base.rstrip('/')}/api/auth/tiktok/callback"
     redirect_uri = os.environ.get("TIKTOK_REDIRECT_URI") or backend_redirect
     if "api.fiilthy.ai" in redirect_uri:
         redirect_uri = backend_redirect
