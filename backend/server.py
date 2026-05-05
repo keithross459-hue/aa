@@ -12,6 +12,7 @@ import io
 import asyncio
 import logging
 import os
+import re
 import hashlib
 import secrets
 import uuid
@@ -37,6 +38,7 @@ from integrations.downloads import (
     build_product_bundle_zip,
     build_product_pdf,
 )
+from integrations.promo_video import build_promo_video_mp4
 from integrations.gumroad import create_product as gumroad_create_product
 from integrations.gumroad import verify_token as gumroad_verify
 from integrations.stores import (
@@ -1241,6 +1243,59 @@ async def download_product_bundle(pid: str, user=Depends(current_user)):
     )
 
 
+async def _product_post_for_video(pid: str, content_id: str, user_id: str):
+    bundle = await _fetch_bundle(pid, user_id)
+    if not bundle:
+        raise HTTPException(404, "Product not found")
+    posts = bundle["tiktok_posts"]
+    if not posts:
+        posts = fallback_tiktok_posts(bundle["product"], count=5)
+
+    idx = 0
+    if content_id:
+        m = re.search(r"(\d+)$", str(content_id))
+        if m:
+            idx = max(0, int(m.group(1)) - 1)
+    if idx >= len(posts):
+        idx = 0
+    return bundle["product"], posts[idx], f"tiktok_post_{idx + 1}"
+
+
+@api.get("/products/{pid}/promo-video/{content_id}")
+async def download_product_promo_video(pid: str, content_id: str, request: Request, user=Depends(current_user)):
+    product, post, resolved_content_id = await _product_post_for_video(pid, content_id, user["id"])
+    backend_base = _tracking_base(request)
+    cta_url = _track_url(backend_base, pid, "tiktok", resolved_content_id) if backend_base else ""
+    video_bytes = build_promo_video_mp4(product, post, cta_url=cta_url)
+    fname = f"{_safe_filename(product.get('title', 'product'))}-{resolved_content_id}.mp4"
+    return Response(
+        content=video_bytes,
+        media_type="video/mp4",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@api.get("/products/{pid}/promo-videos.zip")
+async def download_product_promo_videos_zip(pid: str, request: Request, user=Depends(current_user)):
+    bundle = await _fetch_bundle(pid, user["id"])
+    if not bundle:
+        raise HTTPException(404, "Product not found")
+    posts = bundle["tiktok_posts"] or fallback_tiktok_posts(bundle["product"], count=5)
+    backend_base = _tracking_base(request)
+    safe = _safe_filename(bundle["product"].get("title", "product"))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for idx, post in enumerate(posts[:5], 1):
+            content_id = f"tiktok_post_{idx}"
+            cta_url = _track_url(backend_base, pid, "tiktok", content_id) if backend_base else ""
+            z.writestr(f"{safe}-{content_id}.mp4", build_promo_video_mp4(bundle["product"], post, cta_url=cta_url))
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe}-promo-videos.zip"'},
+    )
+
+
 @api.get("/products/download/all")
 async def download_all_products(user=Depends(current_user)):
     products = await db.products.find({"user_id": user["id"]}, {"_id": 0}).to_list(1000)
@@ -1897,9 +1952,9 @@ async def tiktok_export(product_id: str, request: Request, user=Depends(current_
         "posts": rows,
         "count": len(rows),
         "video_generation": {
-            "configured": False,
-            "status": "manual_video_required",
-            "message": "This engine creates scripts, captions, visual briefs, and tracked links. Actual video-file rendering and TikTok auto-posting are not connected yet.",
+            "configured": True,
+            "status": "manual_mp4_ready",
+            "message": "Download rendered vertical MP4 ads now, then upload manually while TikTok OAuth approval is pending.",
             "upload_url": "https://www.tiktok.com/upload",
         },
     }

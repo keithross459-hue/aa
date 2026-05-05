@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { Loader2, Copy, CheckCircle2, Flame, RefreshCw, Music2, ExternalLink, Video } from "lucide-react";
+import { Loader2, Copy, CheckCircle2, Flame, RefreshCw, Music2, ExternalLink, Video, Download } from "lucide-react";
 
 function copy(text, onDone) {
   navigator.clipboard.writeText(text).then(() => onDone?.());
@@ -16,6 +16,7 @@ export default function TikTokPanel({ productId }) {
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState(0);
   const [drafts, setDrafts] = useState([]);
+  const [videoBusy, setVideoBusy] = useState("");
 
   const flash = (k) => {
     setCopiedKey(k);
@@ -62,6 +63,46 @@ export default function TikTokPanel({ productId }) {
   const posts = data?.posts || [];
   const videoStatus = data?.video_generation;
 
+  const downloadBlob = async (path, filename, type) => {
+    const resp = await api.get(path, { responseType: "blob" });
+    const blob = new Blob([resp.data], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const safeTitle = (data?.product_title || "product").replace(/[^a-zA-Z0-9]+/g, "-").slice(0, 60);
+
+  const downloadVideo = async (contentId, idx) => {
+    const key = contentId || `tiktok_post_${idx + 1}`;
+    setErr("");
+    setVideoBusy(key);
+    try {
+      await downloadBlob(`/products/${productId}/promo-video/${key}`, `${safeTitle}-${key}.mp4`, "video/mp4");
+    } catch (ex) {
+      setErr(ex?.response?.data?.detail || "Video download failed");
+    } finally {
+      setVideoBusy("");
+    }
+  };
+
+  const downloadVideoZip = async () => {
+    setErr("");
+    setVideoBusy("zip");
+    try {
+      await downloadBlob(`/products/${productId}/promo-videos.zip`, `${safeTitle}-promo-videos.zip`, "application/zip");
+    } catch (ex) {
+      setErr(ex?.response?.data?.detail || "Video bundle failed");
+    } finally {
+      setVideoBusy("");
+    }
+  };
+
   return (
     <div className="border border-zinc-800 bg-zinc-950" data-testid="tiktok-panel">
       <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between flex-wrap gap-3">
@@ -93,14 +134,23 @@ export default function TikTokPanel({ productId }) {
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="max-w-3xl text-sm text-zinc-300">{videoStatus.message}</p>
-            <a
-              href={videoStatus.upload_url || "https://www.tiktok.com/upload"}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 border border-zinc-700 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-white hover:text-black"
-            >
-              <ExternalLink className="h-3 w-3" /> Open TikTok upload
-            </a>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={downloadVideoZip}
+                disabled={videoBusy === "zip" || posts.length === 0}
+                className="inline-flex items-center gap-2 bg-[#FFD600] px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-black disabled:opacity-60"
+              >
+                {videoBusy === "zip" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />} Download all MP4s
+              </button>
+              <a
+                href={videoStatus.upload_url || "https://www.tiktok.com/upload"}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 border border-zinc-700 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-white hover:text-black"
+              >
+                <ExternalLink className="h-3 w-3" /> Open TikTok upload
+              </a>
+            </div>
           </div>
         </div>
       )}
@@ -137,6 +187,15 @@ export default function TikTokPanel({ productId }) {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => downloadVideo(p.content_id, i)}
+                    disabled={videoBusy === (p.content_id || `tiktok_post_${i + 1}`)}
+                    className="font-mono text-[10px] uppercase tracking-widest bg-[#FFD600] text-black px-3 py-1.5 transition-colors inline-flex items-center gap-2 disabled:opacity-60"
+                    data-testid={`download-tiktok-video-${i}`}
+                  >
+                    {videoBusy === (p.content_id || `tiktok_post_${i + 1}`) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                    MP4
+                  </button>
                   <button
                     onClick={() =>
                       copy(

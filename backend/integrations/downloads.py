@@ -186,6 +186,43 @@ def _md_from_product(product: Dict[str, Any]) -> str:
 """
 
 
+def _store_upload_kit(product: Dict[str, Any]) -> str:
+    bullets = "\n".join(f"- {b}" for b in (product.get("bullet_features") or []))
+    return f"""# Store Upload Kit
+
+## Product Title
+{product.get('title', 'Untitled')}
+
+## Short Tagline
+{product.get('tagline', '')}
+
+## Store Description
+{product.get('description', '')}
+
+## Price
+${product.get('price', 0)}
+
+## Product Type
+{product.get('product_type', '')}
+
+## What's Included
+{bullets}
+
+## Customer Delivery Notes
+After purchase, download the included PDF/product file and start with the first section. This is a practical digital product for immediate implementation.
+
+## Manual Store Setup Checklist
+- Upload `product.pdf` as the product file.
+- Use the Product Title above as the listing name.
+- Use the Store Description above as the listing description.
+- Set the listed price.
+- Add the sales copy from `sales_copy.txt`.
+- Add 3-5 preview bullets from What's Included.
+- Publish the product.
+- Copy the store URL into your social posts and email promos.
+"""
+
+
 def _md_from_campaigns(campaigns: List[Dict[str, Any]]) -> str:
     if not campaigns:
         return "# Ad Campaigns\n\n_No campaigns generated yet._\n"
@@ -231,6 +268,7 @@ def build_product_bundle_zip(
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("product.pdf", build_product_pdf(product, referral_url=referral_url))
         z.writestr("product.md", _md_from_product(product))
+        z.writestr("store_upload_kit.md", _store_upload_kit(product))
         z.writestr("ad_campaigns.md", _md_from_campaigns(campaigns))
         z.writestr("tiktok_posts.md", _md_from_tiktok(tiktok_posts))
         z.writestr("sales_copy.txt", product.get("sales_copy", ""))
@@ -264,6 +302,7 @@ def build_library_zip(items: List[Dict[str, Any]], referral_url: Optional[str] =
             safe = _safe_folder(p.get("title", "product"))[:60] + "-" + str(p.get("id", ""))[:6]
             z.writestr(f"{safe}/product.pdf", build_product_pdf(p, referral_url=referral_url))
             z.writestr(f"{safe}/product.md", _md_from_product(p))
+            z.writestr(f"{safe}/store_upload_kit.md", _store_upload_kit(p))
             z.writestr(f"{safe}/ad_campaigns.md", _md_from_campaigns(it.get("campaigns", [])))
             z.writestr(f"{safe}/tiktok_posts.md", _md_from_tiktok(it.get("tiktok_posts", [])))
             z.writestr(f"{safe}/sales_copy.txt", p.get("sales_copy", ""))
