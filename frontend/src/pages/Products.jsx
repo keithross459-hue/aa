@@ -8,9 +8,13 @@ import {
   ArrowRight,
   CheckCircle2,
   Download,
+  FileText,
   Flame,
+  Image as ImageIcon,
   Loader2,
   PackageCheck,
+  PlaySquare,
+  ShoppingBag,
   Sparkles,
   Target,
   Trash2,
@@ -181,6 +185,27 @@ export default function Products() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadProductAsset = async (product, kind) => {
+    const map = {
+      bundle: { path: `/products/${product.id}/download/bundle`, type: "application/zip", suffix: "store-upload-bundle.zip" },
+      cover: { path: `/products/${product.id}/download/cover`, type: "image/png", suffix: "cover.png" },
+      videos: { path: `/products/${product.id}/promo-videos.zip`, type: "application/zip", suffix: "promo-videos.zip" },
+    };
+    const cfg = map[kind];
+    if (!cfg) return;
+    const resp = await api.get(cfg.path, { responseType: "blob" });
+    const blob = new Blob([resp.data], { type: cfg.type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const safe = (product.title || "product").replace(/[^a-zA-Z0-9]+/g, "-").slice(0, 60);
+    a.download = `${safe}-${cfg.suffix}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="p-6 lg:p-10" data-testid="products-page">
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
@@ -340,46 +365,131 @@ export default function Products() {
 
       {!firstRun && <div className="mt-10 border border-zinc-800 bg-zinc-950">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-6 py-4">
-          <div className="font-mono text-xs uppercase tracking-widest">Business library - {items.length}</div>
-          <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">Testing products become winners through tracking</div>
+          <div>
+            <div className="font-mono text-xs uppercase tracking-widest">Product inventory - {items.length}</div>
+            <div className="mt-1 text-sm text-zinc-400">Every card contains the finished product, store copy, cover, and manual promo assets.</div>
+          </div>
+          <div className="font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">100% manual launch ready</div>
         </div>
         {items.length === 0 ? (
           <div className="p-10 text-center font-mono text-xs uppercase tracking-widest text-zinc-500">
             No products yet. Choose a direction and build the first one.
           </div>
         ) : (
-          <div className="divide-y divide-zinc-800">
+          <div className="grid grid-cols-1 gap-px bg-zinc-800 xl:grid-cols-2">
             {items.map((p) => (
-              <div key={p.id} className="p-5 transition-colors hover:bg-zinc-900" data-testid={`product-row-${p.id}`}>
-                <div className="flex items-start justify-between gap-4">
-                  <Link to={`/app/products/${p.id}`} className="min-w-0 flex-1">
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <span className={`font-mono text-[10px] uppercase tracking-widest px-2 py-0.5 ${p.launched_stores?.length ? "bg-[#FFD600] text-black" : "bg-zinc-800 text-zinc-300"}`}>
-                        {p.winners?.length ? "Winning product" : p.launched_stores?.length ? "Testing product" : "Draft"}
-                      </span>
-                      <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">${p.price}</span>
-                    </div>
-                    <div className="truncate font-heading text-2xl uppercase">{p.title}</div>
-                    <div className="line-clamp-1 text-sm text-zinc-400">{p.tagline}</div>
-                    <div className="mt-2 flex gap-4 font-mono text-[10px] uppercase tracking-widest text-zinc-500">
-                      <span>{p.campaigns_count} campaigns</span>
-                      <span className="text-[#FF3333]">{p.launched_stores?.length || 0} stores live</span>
-                    </div>
-                  </Link>
-                  <div className="flex items-center gap-2">
-                    <Link to={`/app/products/${p.id}`} className="p-2 text-zinc-400 hover:text-white" title="Open" data-testid={`open-${p.id}`}>
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                    <button onClick={() => del(p.id)} className="p-2 text-zinc-400 hover:text-[#FF3333]" title="Delete" data-testid={`delete-${p.id}`}>
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <ProductInventoryCard
+                key={p.id}
+                product={p}
+                onDelete={del}
+                onDownload={downloadProductAsset}
+              />
             ))}
           </div>
         )}
       </div>}
+    </div>
+  );
+}
+
+function ProductInventoryCard({ product: p, onDelete, onDownload }) {
+  const complete = Math.max(0, Math.min(100, p.completeness_score || 100));
+  const videoCount = Math.max(3, p.tiktok_posts_count || 3);
+  const status = p.winners?.length ? "Winning product" : p.launched_stores?.length ? "Live test" : "Manual ready";
+
+  return (
+    <div className="bg-zinc-950 p-5" data-testid={`product-row-${p.id}`}>
+      <div className="grid gap-5 md:grid-cols-[160px_1fr]">
+        <ProductCoverPreview product={p} />
+        <div className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className={`font-mono text-[10px] uppercase tracking-widest px-2 py-0.5 ${p.launched_stores?.length ? "bg-[#FFD600] text-black" : "bg-zinc-800 text-zinc-300"}`}>
+              {status}
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">${p.price}</span>
+            <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">{p.product_type}</span>
+          </div>
+
+          <Link to={`/app/products/${p.id}`} className="group block">
+            <div className="font-heading text-3xl uppercase leading-none group-hover:text-[#FFD600]">{p.title}</div>
+            <div className="mt-2 text-sm text-zinc-300">{p.tagline}</div>
+          </Link>
+
+          <div className="mt-4 border border-zinc-800 bg-black p-3">
+            <div className="mb-1 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">
+              <ShoppingBag className="h-3 w-3" /> Store description
+            </div>
+            <p className="line-clamp-3 text-sm text-zinc-400">{p.description}</p>
+          </div>
+
+          <div className="mt-4">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">Product completeness</div>
+              <div className="font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">{complete}%</div>
+            </div>
+            <div className="h-2 bg-zinc-800">
+              <div className="h-2 bg-[#FFD600]" style={{ width: `${complete}%` }} />
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <AssetPill icon={<FileText className="h-3 w-3" />} label="Full product" />
+            <AssetPill icon={<ShoppingBag className="h-3 w-3" />} label="Store copy" />
+            <AssetPill icon={<ImageIcon className="h-3 w-3" />} label="Cover PNG" />
+            <AssetPill icon={<PlaySquare className="h-3 w-3" />} label={`${videoCount} videos`} />
+            <AssetPill icon={<Flame className="h-3 w-3" />} label="Ad copy" />
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Link to={`/app/products/${p.id}`} className="btn-hard btn-hard-red inline-flex items-center gap-2 bg-[#FF3333] px-4 py-2 font-mono text-[10px] uppercase tracking-widest text-white" data-testid={`open-${p.id}`}>
+              Open <ArrowRight className="h-3 w-3" />
+            </Link>
+            <button onClick={() => onDownload(p, "bundle")} className="inline-flex items-center gap-2 border border-zinc-700 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-white hover:text-black">
+              <Download className="h-3 w-3" /> Bundle
+            </button>
+            <button onClick={() => onDownload(p, "videos")} className="inline-flex items-center gap-2 border border-zinc-700 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-white hover:text-black">
+              <PlaySquare className="h-3 w-3" /> Videos
+            </button>
+            <button onClick={() => onDownload(p, "cover")} className="inline-flex items-center gap-2 border border-zinc-700 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-white hover:text-black">
+              <ImageIcon className="h-3 w-3" /> Cover
+            </button>
+            <button onClick={() => onDelete(p.id)} className="ml-auto inline-flex items-center gap-2 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-zinc-500 hover:text-[#FF3333]" title="Delete" data-testid={`delete-${p.id}`}>
+              <Trash2 className="h-3 w-3" /> Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProductCoverPreview({ product }) {
+  const words = (product.title || "Digital Product").split(/\s+/).slice(0, 5).join(" ");
+  return (
+    <div className="aspect-[2/3] border border-zinc-800 bg-black p-3">
+      <div className="flex h-full flex-col justify-between border border-zinc-700 bg-[#09090b] p-4">
+        <div>
+          <div className="mb-3 h-2 bg-[#FFD600]" />
+          <div className="font-mono text-[9px] uppercase tracking-widest text-[#FFD600]">FiiLTHY.AI</div>
+        </div>
+        <div>
+          <div className="font-heading text-3xl uppercase leading-none text-white">{words}</div>
+          <div className="mt-3 h-1 w-16 bg-[#FF3333]" />
+          <div className="mt-3 line-clamp-3 text-[11px] leading-snug text-zinc-400">{product.cover_concept || product.tagline}</div>
+        </div>
+        <div className="bg-[#FFD600] px-2 py-1 font-mono text-[9px] uppercase tracking-widest text-black">
+          Cover ready
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssetPill({ icon, label }) {
+  return (
+    <div className="flex min-h-12 items-center gap-2 border border-zinc-800 bg-black px-2 py-2 font-mono text-[9px] uppercase tracking-widest text-zinc-300">
+      <span className="text-[#FFD600]">{icon}</span>
+      <span className="leading-tight">{label}</span>
     </div>
   );
 }

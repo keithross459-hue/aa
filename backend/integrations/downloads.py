@@ -10,6 +10,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
 )
+from integrations.cover_image import build_cover_png
 
 
 def _styles():
@@ -267,6 +268,7 @@ def build_product_bundle_zip(
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("product.pdf", build_product_pdf(product, referral_url=referral_url))
+        z.writestr("cover.png", build_cover_png(product))
         z.writestr("product.md", _md_from_product(product))
         z.writestr("store_upload_kit.md", _store_upload_kit(product))
         z.writestr("ad_campaigns.md", _md_from_campaigns(campaigns))
@@ -301,6 +303,7 @@ def build_library_zip(items: List[Dict[str, Any]], referral_url: Optional[str] =
             p = it["product"]
             safe = _safe_folder(p.get("title", "product"))[:60] + "-" + str(p.get("id", ""))[:6]
             z.writestr(f"{safe}/product.pdf", build_product_pdf(p, referral_url=referral_url))
+            z.writestr(f"{safe}/cover.png", build_cover_png(p))
             z.writestr(f"{safe}/product.md", _md_from_product(p))
             z.writestr(f"{safe}/store_upload_kit.md", _store_upload_kit(p))
             z.writestr(f"{safe}/ad_campaigns.md", _md_from_campaigns(it.get("campaigns", [])))

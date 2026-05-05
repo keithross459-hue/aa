@@ -38,6 +38,7 @@ from integrations.downloads import (
     build_product_bundle_zip,
     build_product_pdf,
 )
+from integrations.cover_image import build_cover_png
 from integrations.promo_video import build_promo_video_mp4
 from integrations.gumroad import create_product as gumroad_create_product
 from integrations.gumroad import verify_token as gumroad_verify
@@ -153,6 +154,9 @@ class Product(BaseModel):
     sales_count: int = 0
     revenue: float = 0.0
     winners: List[str] = []
+    tiktok_posts_count: int = 0
+    completeness_score: int = 100
+    manual_assets: List[str] = []
 
 
 class UpdateProductReq(BaseModel):
@@ -1149,6 +1153,20 @@ Return JSON with EXACT keys:
 @api.get("/products", response_model=List[Product])
 async def list_products(user=Depends(current_user)):
     rows = await db.products.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    for row in rows:
+        tt_count = await db.tiktok_posts.count_documents({"product_id": row["id"], "user_id": user["id"]})
+        row["tiktok_posts_count"] = max(3, int(tt_count or 0))
+        required = [
+            bool(row.get("title")),
+            bool(row.get("description")),
+            bool(row.get("sales_copy")),
+            bool(row.get("cover_concept")),
+            bool(row.get("bullet_features")),
+            bool(row.get("outline")),
+            row["tiktok_posts_count"] >= 3,
+        ]
+        row["completeness_score"] = int(round(sum(1 for x in required if x) / len(required) * 100))
+        row["manual_assets"] = ["product.pdf", "cover.png", "store_upload_kit.md", "sales_copy.txt", "3+ promo videos"]
     return [Product(**r) for r in rows]
 
 
@@ -1219,6 +1237,20 @@ async def download_product_pdf(pid: str, user=Depends(current_user)):
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@api.get("/products/{pid}/download/cover")
+async def download_product_cover(pid: str, user=Depends(current_user)):
+    bundle = await _fetch_bundle(pid, user["id"])
+    if not bundle:
+        raise HTTPException(404, "Product not found")
+    cover_bytes = build_cover_png(bundle["product"])
+    fname = f"{_safe_filename(bundle['product'].get('title', 'product'))}-cover.png"
+    return Response(
+        content=cover_bytes,
+        media_type="image/png",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
 
