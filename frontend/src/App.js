@@ -22,6 +22,7 @@ const ExecutiveAnalytics = lazy(() => import("./pages/ExecutiveAnalytics"));
 const Machine = lazy(() => import("./pages/Machine"));
 const Account = lazy(() => import("./pages/Account"));
 const Legal = lazy(() => import("./pages/Legal"));
+const Platforms = lazy(() => import("./pages/Platforms"));
 
 function PageLoader() {
   return <div className="p-10 font-mono text-zinc-400">Loading...</div>;
@@ -48,6 +49,7 @@ export default function App() {
               <Route path="campaigns" element={<CampaignsList />} />
               <Route path="launch" element={<LaunchesList />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="platforms" element={<Platforms />} />
               <Route path="referrals" element={<Referrals />} />
               <Route path="billing" element={<Billing />} />
               <Route path="analytics" element={<ExecutiveAnalytics />} />

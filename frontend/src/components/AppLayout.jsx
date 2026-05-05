@@ -2,7 +2,7 @@ import { Link, NavLink, Navigate, Outlet } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
 import api from "../api";
-import { LayoutDashboard, Package, Megaphone, Rocket, LogOut, Zap, Settings as SettingsIcon, Users, Shield, CreditCard, BarChart3, WandSparkles, UserCircle } from "lucide-react";
+import { LayoutDashboard, Package, Megaphone, Rocket, LogOut, Zap, Settings as SettingsIcon, Users, Shield, CreditCard, BarChart3, WandSparkles, UserCircle, Cable } from "lucide-react";
 
 export default function AppLayout() {
   const { user, logout, loading } = useAuth();
@@ -43,6 +43,7 @@ export default function AppLayout() {
           <NavLink to="/app/products" className={link}>Builder</NavLink>
           <NavLink to="/app/machine" className={link}>Auto Mode</NavLink>
           <NavLink to="/app/billing" className={link}>Billing</NavLink>
+          <NavLink to="/app/platforms" className={link}>Platforms</NavLink>
           <NavLink to="/app/referrals" className={link}>Referrals</NavLink>
           <NavLink to="/app/account" className={link}>Account</NavLink>
           {user.role === "admin" && <NavLink to="/app/admin" className={link}>Admin</NavLink>}
@@ -84,6 +85,9 @@ export default function AppLayout() {
           )}
           <NavLink to="/app/settings" className={link} data-testid="nav-settings">
             <SettingsIcon className="w-4 h-4" /> Integrations
+          </NavLink>
+          <NavLink to="/app/platforms" className={link} data-testid="nav-platforms">
+            <Cable className="w-4 h-4" /> Platforms
           </NavLink>
           <NavLink to="/app/referrals" className={link} data-testid="nav-referrals">
             <Users className="w-4 h-4" /> Referrals
