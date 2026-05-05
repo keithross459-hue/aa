@@ -28,6 +28,10 @@ def test_launch_critical_routes_registered():
         '"/run"',
         '"/legal/privacy"',
         '"/legal/terms"',
+        '"/products/{pid}/sellability"',
+        '"/products/{pid}/fix"',
+        '"/trust/metrics"',
+        '"/product-unlock-audit"',
     }
     missing = [path for path in expected if path not in source]
     assert not missing

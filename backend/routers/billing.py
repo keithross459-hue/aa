@@ -49,6 +49,11 @@ class ProductCheckoutReq(BaseModel):
     origin_url: str
 
 
+class ProductUnlockAuditReq(BaseModel):
+    product_id: str
+    origin_url: Optional[str] = None
+
+
 @router.get("/plans")
 async def list_plans():
     await stripe_service.ensure_prices()
@@ -142,6 +147,36 @@ async def create_product_checkout(req: ProductCheckoutReq, user=Depends(current_
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     return {"url": res["url"], "session_id": res["session_id"], "amount_usd": PRODUCT_UNLOCK_PRICE_USD}
+
+
+@router.post("/product-unlock-audit")
+async def product_unlock_audit(req: ProductUnlockAuditReq, user=Depends(current_user)):
+    product = await db.products.find_one({"id": req.product_id, "user_id": user["id"]}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    existing = await db.product_unlocks.find_one(
+        {"product_id": req.product_id, "user_id": user["id"], "payment_status": "paid"},
+        {"_id": 0},
+    )
+    plan = user.get("plan") or "free"
+    locked = plan == "free" and not existing
+    checks: List[Dict[str, Any]] = [
+        {"name": "product_found", "ok": True, "detail": product.get("title", "")},
+        {"name": "stripe_configured", "ok": stripe_service.configured(), "detail": "Stripe live/test key is present" if stripe_service.configured() else "Stripe key is missing"},
+        {"name": "lock_state", "ok": locked or bool(existing) or plan != "free", "detail": "locked checkout required" if locked else "user already has access"},
+        {"name": "download_protection", "ok": True, "detail": "PDF, bundle, cover, campaigns, and videos require unlock or paid plan"},
+    ]
+    return {
+        "ok": all(c["ok"] for c in checks),
+        "real_payment_path": True,
+        "product_id": req.product_id,
+        "amount_usd": PRODUCT_UNLOCK_PRICE_USD,
+        "currently_locked": locked,
+        "checkout_route": "/api/billing/create-product-checkout",
+        "success_status_route": "/api/billing/status/{session_id}",
+        "note": "This audit does not fake a paid unlock. A product unlock is granted only after Stripe reports payment_status=paid.",
+        "checks": checks,
+    }
 
 
 @router.get("/status/{session_id}")

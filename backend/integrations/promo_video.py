@@ -79,6 +79,7 @@ def _draw_frame(
     product: Dict[str, Any],
     post: Dict[str, Any],
     cta_url: str,
+    style: str,
     frame_index: int,
     total_frames: int,
 ) -> Image.Image:
@@ -95,7 +96,12 @@ def _draw_frame(
     draw.rectangle((0, 0, WIDTH, 18), fill=yellow)
     draw.rectangle((0, HEIGHT - 18, int(WIDTH * progress), HEIGHT), fill=red)
     draw.rectangle((72, 88, WIDTH - 72, 150), outline=dark, width=2)
-    draw.text((96, 104), "FiiLTHY.AI PROMO", font=_font(28, True), fill=yellow)
+    style_label = {
+        "pain_solution": "PAIN TO SOLUTION",
+        "walkthrough": "PRODUCT WALKTHROUGH",
+        "ugc_script": "UGC TALKING HEAD",
+    }.get(style, "PROMO")
+    draw.text((96, 104), f"FiiLTHY.AI - {style_label}", font=_font(28, True), fill=yellow)
 
     title = _safe_text(product.get("title"), "Digital Product")
     tagline = _safe_text(product.get("tagline"))
@@ -106,15 +112,17 @@ def _draw_frame(
 
     scene = min(3, int(progress * 4))
     if scene == 0:
-        main = hook
+        main = hook if style != "walkthrough" else "LOOK INSIDE"
         sub = tagline or "A practical digital product built to use today."
         accent = yellow
     elif scene == 1:
-        main = beats[0]
+        main = beats[0] if style != "ugc_script" else "I MADE THIS FOR ONE SPECIFIC PROBLEM"
         sub = beats[1] if len(beats) > 1 else title
         accent = red
     elif scene == 2:
         main = beats[2] if len(beats) > 2 else caption
+        if style == "walkthrough":
+            main = "WHAT YOU GET"
         sub = beats[3] if len(beats) > 3 else "Built for fast implementation."
         accent = yellow
     else:
@@ -154,6 +162,7 @@ def build_promo_video_mp4(
     product: Dict[str, Any],
     post: Dict[str, Any],
     cta_url: Optional[str] = None,
+    style: str = "pain_solution",
 ) -> bytes:
     """Build a vertical MP4 ad from a product and social post script."""
     total_frames = FPS * SECONDS
@@ -162,7 +171,7 @@ def build_promo_video_mp4(
     try:
         with imageio.get_writer(path, fps=FPS, codec="libx264", quality=7, macro_block_size=1) as writer:
             for frame_index in range(total_frames):
-                frame = _draw_frame(product, post, cta_url or "", frame_index, total_frames)
+                frame = _draw_frame(product, post, cta_url or "", style, frame_index, total_frames)
                 writer.append_data(np.asarray(frame))
         with open(path, "rb") as f:
             return f.read()

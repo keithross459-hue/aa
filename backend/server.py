@@ -84,6 +84,11 @@ STORES = [
     {"id": "payhip", "name": "Payhip", "real": True},
 ]
 AD_PLATFORMS = ["TikTok Ads", "Meta Ads", "YouTube Ads", "Twitter Ads", "Pinterest Ads"]
+VIDEO_STYLES = [
+    {"id": "pain_solution", "name": "Pain-to-solution text ad"},
+    {"id": "walkthrough", "name": "Product walkthrough"},
+    {"id": "ugc_script", "name": "UGC talking-head script"},
+]
 
 
 # ---------- Models ----------
@@ -233,6 +238,10 @@ class SaleEventReq(BaseModel):
 class FirstResultEventReq(BaseModel):
     action: Literal["copy_post", "marked_posted", "copy_link", "opened_link", "dismissed"]
     content_id: Optional[str] = None
+
+
+class ProductFixReq(BaseModel):
+    aspect: Literal["title", "offer", "hooks", "sales_copy", "video_script", "price"]
 
 
 WINNER_MIN_CTR = 0.03
@@ -1275,6 +1284,361 @@ async def _require_product_access(product: Dict[str, Any], user: Dict[str, Any])
         )
 
 
+def _clean_words(value: Any) -> List[str]:
+    return re.findall(r"[a-zA-Z0-9]+", str(value or "").lower())
+
+
+def _score_range(value: float) -> int:
+    return max(0, min(100, int(round(value))))
+
+
+def _contains_any(text: str, terms: List[str]) -> bool:
+    lower = str(text or "").lower()
+    return any(term in lower for term in terms)
+
+
+def _metric_score_product(product: Dict[str, Any], posts: List[Dict[str, Any]], totals: Dict[str, Any]) -> Dict[str, int]:
+    title_words = _clean_words(product.get("title"))
+    desc_words = _clean_words(product.get("description"))
+    sales_words = _clean_words(product.get("sales_copy"))
+    audience_words = _clean_words(product.get("target_audience"))
+    bullets = [b for b in (product.get("bullet_features") or []) if str(b).strip()]
+    outline = [o for o in (product.get("outline") or []) if str(o).strip()]
+    hooks = [str(p.get("hook") or "").strip() for p in posts if str(p.get("hook") or "").strip()]
+    scripts = [str(p.get("script") or "").strip() for p in posts if str(p.get("script") or "").strip()]
+    price = float(product.get("price") or 0)
+
+    pain_terms = ["without", "stop", "fix", "avoid", "faster", "first", "sale", "money", "client", "lead", "save", "lost", "struggle"]
+    cta_terms = ["download", "start", "get", "grab", "use", "today", "now", "buy"]
+    generic_terms = {"guide", "ebook", "playbook", "template", "system", "kit"}
+
+    buyer_pain = 35 + min(len(audience_words), 12) * 3
+    buyer_pain += 15 if len(desc_words) >= 35 else 5
+    buyer_pain += 15 if _contains_any(product.get("description", ""), pain_terms) else 0
+
+    offer = 30 + min(len(bullets), 8) * 5
+    offer += 15 if len(outline) >= 8 else min(len(outline), 8)
+    offer += 10 if _contains_any(product.get("tagline", ""), ["for", "without", "so you", "helps"]) else 0
+
+    hook = 35
+    hook += 20 if 2 <= len(title_words) <= 8 else 5
+    hook += 15 if hooks else 0
+    hook += 10 if _contains_any(" ".join(hooks[:3]) or product.get("tagline", ""), pain_terms) else 0
+    hook += 10 if "?" in " ".join(hooks[:3]) or _contains_any(" ".join(hooks[:3]), ["this", "why", "how", "stop"]) else 0
+
+    title = 45
+    title += 25 if 2 <= len(title_words) <= 8 else 0
+    title += 15 if len(set(title_words) - generic_terms) >= 2 else 0
+    title += 10 if _contains_any(product.get("title", ""), ["first", "sale", "client", "kit", "system", "template"]) else 0
+
+    sales_page = 30
+    sales_page += 25 if len(sales_words) >= 90 else min(len(sales_words) // 4, 20)
+    sales_page += 20 if len(bullets) >= 5 else len(bullets) * 3
+    sales_page += 10 if _contains_any(product.get("sales_copy", ""), cta_terms) else 0
+
+    video = 25 + min(len(hooks), 3) * 15 + min(len(scripts), 3) * 10
+    video += 10 if any(len(_clean_words(s)) >= 35 for s in scripts[:3]) else 0
+
+    price_fit = 40
+    if 7 <= price <= 97:
+        price_fit += 35
+    elif 1 <= price < 7 or 98 <= price <= 197:
+        price_fit += 20
+    price_fit += 10 if price in (9, 19, 27, 29, 47, 49, 97) else 0
+
+    clicks = int(totals.get("clicks", 0) or 0)
+    sales = int(totals.get("sales", 0) or 0)
+    revenue = float(totals.get("revenue", 0) or 0)
+    conversion = float(totals.get("conversion_rate", 0) or 0)
+    ctr = float(totals.get("ctr", 0) or 0)
+
+    conversion_likelihood = int((buyer_pain + offer + hook + sales_page + price_fit) / 5)
+    if sales > 0:
+        conversion_likelihood = max(conversion_likelihood, 86)
+    elif clicks > 0:
+        conversion_likelihood = max(conversion_likelihood, 68)
+    if conversion > 0:
+        conversion_likelihood += 8
+    if ctr > 0.03:
+        conversion_likelihood += 5
+
+    first_sale = int((offer + hook + price_fit + video) / 4)
+    if sales > 0 or revenue > 0:
+        first_sale = 92
+    elif clicks > 0:
+        first_sale = max(first_sale, 70)
+
+    return {
+        "buyer_pain_clarity": _score_range(buyer_pain),
+        "offer_strength": _score_range(offer),
+        "hook_strength": _score_range(hook),
+        "title_strength": _score_range(title),
+        "sales_page_clarity": _score_range(sales_page),
+        "video_quality": _score_range(video),
+        "price_fit": _score_range(price_fit),
+        "conversion_likelihood": _score_range(conversion_likelihood),
+        "first_sale_probability": _score_range(first_sale),
+    }
+
+
+def _blocker_from_score(key: str, score: int) -> Optional[Dict[str, Any]]:
+    labels = {
+        "buyer_pain_clarity": ("Buyer pain is not sharp enough", "The buyer may not instantly see that this was made for their exact problem.", "positioning"),
+        "offer_strength": ("Offer does not feel complete enough", "The product needs more obvious deliverables and a clearer promised outcome.", "offer"),
+        "hook_strength": ("The first three seconds are too soft", "If the hook does not stop the scroll, the product never gets a fair test.", "hooks"),
+        "title_strength": ("Title is too generic", "A vague title lowers perceived value before the buyer reads the offer.", "title"),
+        "sales_page_clarity": ("Sales copy is not doing enough work", "The page must explain the pain, contents, and why someone should act now.", "sales_copy"),
+        "video_quality": ("Video assets are not strong enough yet", "The user needs usable ads they can download and post immediately.", "video_script"),
+        "price_fit": ("Price may create friction", "The first-sale price should feel easy to test while still making the product feel valuable.", "price"),
+        "conversion_likelihood": ("Conversion path needs proof", "Traffic is not enough; the offer needs clicks turning into real payment signals.", "offer"),
+        "first_sale_probability": ("First-sale path is still unclear", "The user needs one exact post, one destination, and one metric to watch.", "hooks"),
+    }
+    if score >= 75:
+        return None
+    severity = "HIGH" if score < 55 else "MEDIUM" if score < 70 else "LOW"
+    title, why, aspect = labels[key]
+    return {"impact": severity, "aspect": aspect, "what": title, "why": why, "score": score}
+
+
+def _default_hooks(product: Dict[str, Any]) -> List[str]:
+    audience = str(product.get("target_audience") or "creators").split(",")[0]
+    title = str(product.get("title") or "this product")
+    return [
+        f"If you're a {audience}, this fixes the part that keeps you stuck.",
+        f"I turned {title} into something you can actually use today.",
+        "Stop buying random advice. Use this instead.",
+        "This is the shortcut I would give a beginner before they waste another week.",
+        "You do not need more ideas. You need a product people understand fast.",
+    ]
+
+
+def _default_posts(product: Dict[str, Any], style: str = "pain_solution") -> List[Dict[str, Any]]:
+    hooks = _default_hooks(product)
+    title = str(product.get("title") or "the product")
+    audience = str(product.get("target_audience") or "creators")
+    if style == "walkthrough":
+        script = (
+            "0:00 Show the finished product download.\n"
+            "0:04 Point to the exact buyer and problem.\n"
+            "0:09 Flip through the sections, templates, or checklist.\n"
+            "0:17 Show what they should do first.\n"
+            "0:24 CTA: download it and use the first section today."
+        )
+        visual = "Screen recording of the product, cover, checklist, and store listing."
+    elif style == "ugc_script":
+        script = (
+            "0:00 I made this because I kept seeing people stuck on the same step.\n"
+            "0:05 If you are in this exact situation, this gives you the next move.\n"
+            "0:13 Here is what is inside and how to use it.\n"
+            "0:22 Grab it, try the first step, and watch for real clicks."
+        )
+        visual = "Talking-head style with quick cuts to the product pages and notes."
+    else:
+        script = (
+            "0:00 Call out the painful problem.\n"
+            "0:04 Show the product as the simple fix.\n"
+            "0:10 Show three pieces included inside.\n"
+            "0:18 Explain the first action after download.\n"
+            "0:25 CTA: get it and test it today."
+        )
+        visual = "Text-on-screen problem, product cover reveal, then checklist preview."
+    return [
+        {
+            "id": str(uuid.uuid4()),
+            "hook": hook,
+            "script": script,
+            "caption": f"{title} is built for {audience}. Download it, use the first section, and test the offer with real traffic.",
+            "hashtags": ["digitalproduct", "sidehustle", "smallbusiness", "creator", "firstsale", "marketing"],
+            "visual_idea": visual,
+            "style": style,
+        }
+        for hook in hooks
+    ]
+
+
+async def _sellability_review(product: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+    posts = await db.tiktok_posts.find(
+        {"product_id": product["id"], "user_id": user["id"]},
+        {"_id": 0, "user_id": 0},
+    ).sort("created_at", -1).to_list(20)
+    perf = await _compute_performance(product["id"], user["id"])
+    totals = {
+        "impressions": sum(p["impressions"] for p in perf["performance"]),
+        "clicks": sum(p["clicks"] for p in perf["performance"]),
+        "sales": sum(p["sales"] for p in perf["performance"]),
+        "revenue": round(sum(p["revenue"] for p in perf["performance"]), 2),
+    }
+    totals["ctr"] = round((totals["clicks"] / totals["impressions"]) if totals["impressions"] else 0.0, 4)
+    totals["conversion_rate"] = round((totals["sales"] / totals["clicks"]) if totals["clicks"] else 0.0, 4)
+
+    scores = _metric_score_product(product, posts, totals)
+    total_score = _score_range(sum(scores.values()) / len(scores))
+    blockers = [_blocker_from_score(k, v) for k, v in sorted(scores.items(), key=lambda item: item[1])]
+    blockers = [b for b in blockers if b][:3]
+    if totals["impressions"] == 0 and totals["clicks"] == 0 and totals["sales"] == 0:
+        blockers.append({
+            "impact": "HIGH",
+            "aspect": "hooks",
+            "what": "No real traffic signal yet",
+            "why": "There are no tracked impressions, clicks, or sales for this product, so the next job is to post and measure.",
+            "score": 0,
+        })
+    blockers = blockers[:3]
+    priority = blockers[0] if blockers else {
+        "impact": "LOW",
+        "aspect": "hooks",
+        "what": "Execution speed is now the main lever",
+        "why": "The product is complete enough to test. The fastest learning comes from posting and watching real signals.",
+        "score": total_score,
+    }
+
+    best_hook = (posts[0].get("hook") if posts else None) or _default_hooks(product)[0]
+    if totals["sales"] > 0:
+        stage = "WINNER"
+        next_action = "Duplicate the best-performing creative into 3 variations and keep the same destination link."
+    elif totals["clicks"] > 0:
+        stage = "SIGNAL"
+        next_action = "Keep the hook, tighten the offer page, and watch click-to-sale conversion."
+    elif posts:
+        stage = "TESTING"
+        next_action = "Post the best hook today and send all traffic to the tracked product link."
+    else:
+        stage = "BUILT"
+        next_action = "Generate the three video styles, download them, and post the pain-to-solution ad first."
+
+    confidence = "corrective" if total_score < 70 else "balanced" if total_score < 85 else "confident"
+    return {
+        "product_id": product["id"],
+        "product_title": product.get("title"),
+        "stage": stage,
+        "sellability_score": total_score,
+        "confidence": confidence,
+        "scores": scores,
+        "top_3_blockers": blockers,
+        "priority_fix": priority,
+        "best_first_hook": best_hook,
+        "exact_next_action": next_action,
+        "first_sale_path": [
+            {"step": 1, "label": "Post first", "action": best_hook},
+            {"step": 2, "label": "Send traffic", "action": "Use the tracked listing link or publish a real store listing first."},
+            {"step": 3, "label": "Watch signal", "action": "Watch clicks first, then sales. Do not scale without purchases."},
+        ],
+        "real_metrics": totals,
+        "winner_loop": perf["winner_loop"],
+        "no_fake_numbers_note": "Only tracked impressions, clicks, sales, and revenue are counted here. No simulated analytics.",
+    }
+
+
+async def _apply_product_fix(product: Dict[str, Any], user: Dict[str, Any], aspect: str) -> Dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    title = str(product.get("title") or "Digital Product").strip()
+    audience = str(product.get("target_audience") or "creators").strip()
+    product_type = str(product.get("product_type") or "product").strip()
+    changes: Dict[str, Any] = {"updated_at": now, "last_surgical_fix": aspect}
+
+    if aspect == "title":
+        base = re.sub(r"\b(playbook|guide|ebook)\b", "", title, flags=re.I).strip(" -")
+        changes["title"] = f"{base or 'First Sale'} Kit"[:80]
+        changes["tagline"] = f"A clear {product_type} for {audience.split(',')[0]} who need one practical next step."
+    elif aspect == "offer":
+        changes["tagline"] = f"Turn {audience.split(',')[0]} from stuck to taking the first paid action."
+        changes["description"] = (
+            f"{title} is a practical download for {audience}. It shows the exact problem, the fastest usable fix, "
+            "and the first action to take after download so the buyer can test with real traffic instead of guessing."
+        )
+        bullets = product.get("bullet_features") or []
+        upgrade = [
+            "A one-page quick-start path for the first action",
+            "A clear buyer problem and promise statement",
+            "A simple posting and traffic checklist",
+        ]
+        changes["bullet_features"] = (upgrade + bullets)[:10]
+    elif aspect == "sales_copy":
+        bullets = "\n".join(f"- {b}" for b in (product.get("bullet_features") or [])[:6])
+        changes["sales_copy"] = (
+            f"{title} is built for {audience} who know they need a cleaner path, not another vague idea.\n\n"
+            f"The problem is simple: without a clear offer, useful deliverable, and first traffic action, the product sits unused. "
+            f"This {product_type} gives buyers the structure to move immediately.\n\n"
+            f"Inside, they get:\n{bullets}\n\n"
+            "Start with the first section, follow the checklist, and put the offer in front of real people today. "
+            "No fake income claims. No pretend proof. Just a clearer product and a faster test."
+        )[:3000]
+    elif aspect == "price":
+        current = float(product.get("price") or 0)
+        changes["price"] = 9.0 if current <= 0 or current > 49 else 19.0 if current < 15 else 27.0
+    elif aspect in ("hooks", "video_script"):
+        style = "ugc_script" if aspect == "video_script" else "pain_solution"
+        posts = _default_posts(product, style=style)
+        for p in posts:
+            p["created_at"] = now
+        await db.tiktok_posts.delete_many({"product_id": product["id"], "user_id": user["id"]})
+        await db.tiktok_posts.insert_many([{**p, "product_id": product["id"], "user_id": user["id"]} for p in posts])
+        await db.products.update_one({"id": product["id"], "user_id": user["id"]}, {"$set": changes})
+        return {"updated_product": product, "posts": posts, "changed_fields": ["tiktok_posts"], "aspect": aspect}
+
+    await db.products.update_one({"id": product["id"], "user_id": user["id"]}, {"$set": changes})
+    updated = await db.products.find_one({"id": product["id"], "user_id": user["id"]}, {"_id": 0})
+    return {"updated_product": updated, "posts": [], "changed_fields": list(changes.keys()), "aspect": aspect}
+
+
+@api.get("/products/{pid}/sellability")
+async def product_sellability(pid: str, user=Depends(current_user)):
+    product = await db.products.find_one({"id": pid, "user_id": user["id"]}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    await _decorate_product_access(product, user)
+    return await _sellability_review(product, user)
+
+
+@api.post("/products/{pid}/fix")
+async def product_fix(pid: str, req: ProductFixReq, user=Depends(current_user)):
+    product = await db.products.find_one({"id": pid, "user_id": user["id"]}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    await _require_product_access(product, user)
+    result = await _apply_product_fix(product, user, req.aspect)
+    updated = result["updated_product"]
+    await _decorate_product_access(updated, user)
+    review = await _sellability_review(updated, user)
+    return {
+        "ok": True,
+        "aspect": req.aspect,
+        "changed_fields": result["changed_fields"],
+        "product": Product(**updated),
+        "posts": result["posts"],
+        "review": review,
+    }
+
+
+@api.get("/trust/metrics")
+async def trust_metrics(user=Depends(current_user)):
+    products = await db.products.count_documents({"user_id": user["id"]})
+    unlocks = await db.product_unlocks.count_documents({"user_id": user["id"], "payment_status": "paid"})
+    tracking = await db.tracking_events.aggregate([
+        {"$match": {"user_id": user["id"]}},
+        {"$group": {
+            "_id": "$event_type",
+            "count": {"$sum": 1},
+            "revenue": {"$sum": {"$cond": [{"$eq": ["$event_type", "sale"]}, {"$ifNull": ["$value", 0]}, 0]}},
+        }},
+    ]).to_list(20)
+    by_type = {row["_id"]: row for row in tracking}
+    sales = int(by_type.get("sale", {}).get("count", 0) or 0)
+    revenue = round(float(by_type.get("sale", {}).get("revenue", 0) or 0), 2)
+    listings_live = await db.listings.count_documents({"user_id": user["id"], "status": "LIVE", "real": True})
+    return {
+        "real_only": True,
+        "products_created": products,
+        "products_unlocked": unlocks,
+        "live_store_listings": listings_live,
+        "impressions_tracked": int(by_type.get("impression", {}).get("count", 0) or 0),
+        "clicks_tracked": int(by_type.get("click", {}).get("count", 0) or 0),
+        "sales_tracked": sales,
+        "revenue_tracked": revenue,
+        "disclaimer": "No income guarantee. These are real tracked app events only, not simulated results.",
+    }
+
+
 @api.get("/products/{pid}/download/pdf")
 async def download_product_pdf(pid: str, user=Depends(current_user)):
     bundle = await _fetch_bundle(pid, user["id"])
@@ -1350,12 +1714,13 @@ async def _product_post_for_video(pid: str, content_id: str, user: Dict[str, Any
 
 
 @api.get("/products/{pid}/promo-video/{content_id}")
-async def download_product_promo_video(pid: str, content_id: str, request: Request, user=Depends(current_user)):
+async def download_product_promo_video(pid: str, content_id: str, request: Request, style: str = "pain_solution", user=Depends(current_user)):
+    style = style if style in {s["id"] for s in VIDEO_STYLES} else "pain_solution"
     product, post, resolved_content_id = await _product_post_for_video(pid, content_id, user)
     backend_base = _tracking_base(request)
     cta_url = _track_url(backend_base, pid, "tiktok", resolved_content_id) if backend_base else ""
-    video_bytes = build_promo_video_mp4(product, post, cta_url=cta_url)
-    fname = f"{_safe_filename(product.get('title', 'product'))}-{resolved_content_id}.mp4"
+    video_bytes = build_promo_video_mp4(product, post, cta_url=cta_url, style=style)
+    fname = f"{_safe_filename(product.get('title', 'product'))}-{resolved_content_id}-{style}.mp4"
     return Response(
         content=video_bytes,
         media_type="video/mp4",
@@ -1374,10 +1739,15 @@ async def download_product_promo_videos_zip(pid: str, request: Request, user=Dep
     safe = _safe_filename(bundle["product"].get("title", "product"))
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for idx, post in enumerate(posts[:5], 1):
+        for idx, style_meta in enumerate(VIDEO_STYLES, 1):
+            post = posts[(idx - 1) % len(posts)]
             content_id = f"tiktok_post_{idx}"
+            style = style_meta["id"]
             cta_url = _track_url(backend_base, pid, "tiktok", content_id) if backend_base else ""
-            z.writestr(f"{safe}-{content_id}.mp4", build_promo_video_mp4(bundle["product"], post, cta_url=cta_url))
+            z.writestr(
+                f"{safe}-{idx}-{style}.mp4",
+                build_promo_video_mp4(bundle["product"], post, cta_url=cta_url, style=style),
+            )
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",
@@ -2049,6 +2419,7 @@ async def tiktok_export(product_id: str, request: Request, user=Depends(current_
                 "status": "locked",
                 "message": f"Unlock this product package for ${PRODUCT_UNLOCK_PRICE_USD:g} to get the rendered promo videos and full posting kit.",
                 "upload_url": "https://www.tiktok.com/upload",
+                "styles": VIDEO_STYLES,
             },
         }
     rows = await db.tiktok_posts.find(
@@ -2078,8 +2449,9 @@ async def tiktok_export(product_id: str, request: Request, user=Depends(current_
         "video_generation": {
             "configured": True,
             "status": "manual_mp4_ready",
-            "message": "Download rendered vertical MP4 ads now, then upload manually while TikTok OAuth approval is pending.",
+            "message": "Download three rendered vertical MP4 styles now, then upload manually while TikTok OAuth approval is pending.",
             "upload_url": "https://www.tiktok.com/upload",
+            "styles": VIDEO_STYLES,
         },
     }
 

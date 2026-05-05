@@ -30,6 +30,7 @@ import TikTokPanel from "../components/TikTokPanel";
 import AnalyticsPanel from "../components/AnalyticsPanel";
 import FirstResultEngine from "../components/FirstResultEngine";
 import ScaleUpgradePrompt from "../components/ScaleUpgradePrompt";
+import SellabilityPanel from "../components/SellabilityPanel";
 
 const LOOP = ["Build", "Launch", "Promote", "Track", "Improve"];
 
@@ -281,6 +282,18 @@ export default function ProductDetail() {
           <Stat icon={<CheckCircle2 />} label="Stores live" value={p.launched_stores.length} color="#FF3333" />
         </div>
       </section>
+
+      <SellabilityPanel
+        productId={id}
+        product={p}
+        locked={locked}
+        onUnlock={unlockProduct}
+        onProductUpdated={(next) => {
+          setP(next);
+          syncDraft(next);
+          load();
+        }}
+      />
 
       <div className="mb-10 grid grid-cols-1 gap-px border border-zinc-800 bg-zinc-800 lg:grid-cols-2">
         <Section title="Contents">

@@ -17,6 +17,7 @@ export default function TikTokPanel({ productId }) {
   const [selected, setSelected] = useState(0);
   const [drafts, setDrafts] = useState([]);
   const [videoBusy, setVideoBusy] = useState("");
+  const [activeStyle, setActiveStyle] = useState("pain_solution");
 
   const flash = (k) => {
     setCopiedKey(k);
@@ -62,6 +63,11 @@ export default function TikTokPanel({ productId }) {
 
   const posts = data?.posts || [];
   const videoStatus = data?.video_generation;
+  const videoStyles = videoStatus?.styles || [
+    { id: "pain_solution", name: "Pain-to-solution text ad" },
+    { id: "walkthrough", name: "Product walkthrough" },
+    { id: "ugc_script", name: "UGC talking-head script" },
+  ];
 
   const downloadBlob = async (path, filename, type) => {
     const resp = await api.get(path, { responseType: "blob" });
@@ -81,9 +87,9 @@ export default function TikTokPanel({ productId }) {
   const downloadVideo = async (contentId, idx) => {
     const key = contentId || `tiktok_post_${idx + 1}`;
     setErr("");
-    setVideoBusy(key);
+    setVideoBusy(`${key}-${activeStyle}`);
     try {
-      await downloadBlob(`/products/${productId}/promo-video/${key}`, `${safeTitle}-${key}.mp4`, "video/mp4");
+      await downloadBlob(`/products/${productId}/promo-video/${key}?style=${activeStyle}`, `${safeTitle}-${key}-${activeStyle}.mp4`, "video/mp4");
     } catch (ex) {
       setErr(ex?.response?.data?.detail || "Video download failed");
     } finally {
@@ -135,12 +141,23 @@ export default function TikTokPanel({ productId }) {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="max-w-3xl text-sm text-zinc-300">{videoStatus.message}</p>
             <div className="flex flex-wrap gap-2">
+              {videoStyles.map((style) => (
+                <button
+                  key={style.id}
+                  onClick={() => setActiveStyle(style.id)}
+                  className={`inline-flex items-center gap-2 border px-3 py-2 font-mono text-[10px] uppercase tracking-widest ${
+                    activeStyle === style.id ? "border-[#FFD600] bg-[#FFD600] text-black" : "border-zinc-700 text-white hover:bg-white hover:text-black"
+                  }`}
+                >
+                  {style.name}
+                </button>
+              ))}
               <button
                 onClick={downloadVideoZip}
                 disabled={videoBusy === "zip" || posts.length === 0}
                 className="inline-flex items-center gap-2 bg-[#FFD600] px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-black disabled:opacity-60"
               >
-                {videoBusy === "zip" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />} Download all MP4s
+                {videoBusy === "zip" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />} Download 3 MP4s
               </button>
               <a
                 href={videoStatus.upload_url || "https://www.tiktok.com/upload"}
@@ -189,11 +206,11 @@ export default function TikTokPanel({ productId }) {
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => downloadVideo(p.content_id, i)}
-                    disabled={videoBusy === (p.content_id || `tiktok_post_${i + 1}`)}
+                    disabled={videoBusy === `${p.content_id || `tiktok_post_${i + 1}`}-${activeStyle}`}
                     className="font-mono text-[10px] uppercase tracking-widest bg-[#FFD600] text-black px-3 py-1.5 transition-colors inline-flex items-center gap-2 disabled:opacity-60"
                     data-testid={`download-tiktok-video-${i}`}
                   >
-                    {videoBusy === (p.content_id || `tiktok_post_${i + 1}`) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                    {videoBusy === `${p.content_id || `tiktok_post_${i + 1}`}-${activeStyle}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
                     MP4
                   </button>
                   <button
