@@ -22,6 +22,44 @@ HOOK_PATTERNS = [
 ]
 
 
+def fallback_tiktok_posts(product: Dict[str, Any], count: int = 5) -> List[Dict[str, Any]]:
+    """Deterministic promo scripts when upstream AI generation is unavailable."""
+    title = str(product.get("title") or "the product")
+    tagline = str(product.get("tagline") or "a practical shortcut")
+    audience = str(product.get("target_audience") or "creators")
+    hooks = [
+        f"Stop overthinking it. {title} is live.",
+        f"I built this for {audience} who need the shortcut.",
+        f"If your product is stuck, fix this first.",
+        f"This is the simple path from idea to checkout.",
+        f"One useful paid offer beats 100 unfinished ideas.",
+    ]
+    posts: List[Dict[str, Any]] = []
+    for idx, hook in enumerate(hooks[:count], 1):
+        posts.append({
+            "id": str(uuid.uuid4()),
+            "hook": hook,
+            "script": (
+                f"Hook: {hook}\n"
+                f"Show the problem in one sentence.\n"
+                f"Show the offer: {title}.\n"
+                f"Promise: {tagline}\n"
+                "Show one checklist item or page from the product.\n"
+                "CTA: grab it through the link and start today."
+            ),
+            "caption": f"{title} is live. Built for action, not theory.",
+            "hashtags": [
+                "digitalproducts", "sidehustle", "creatorbusiness", "smallbusiness",
+                "launch", "templates", "aitools", "makemoneyonline",
+            ],
+            "visual_idea": (
+                "Record the product page, show one section/checklist, add captions for the promise, "
+                "and end with the tracked link CTA."
+            ),
+        })
+    return posts
+
+
 def _safe_json_parse(text: str):
     import json, re
     text = text.strip()

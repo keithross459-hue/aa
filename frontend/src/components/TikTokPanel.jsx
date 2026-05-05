@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { Loader2, Copy, CheckCircle2, Flame, RefreshCw, Music2 } from "lucide-react";
+import { Loader2, Copy, CheckCircle2, Flame, RefreshCw, Music2, ExternalLink, Video } from "lucide-react";
 
 function copy(text, onDone) {
   navigator.clipboard.writeText(text).then(() => onDone?.());
@@ -60,6 +60,7 @@ export default function TikTokPanel({ productId }) {
   };
 
   const posts = data?.posts || [];
+  const videoStatus = data?.video_generation;
 
   return (
     <div className="border border-zinc-800 bg-zinc-950" data-testid="tiktok-panel">
@@ -82,6 +83,25 @@ export default function TikTokPanel({ productId }) {
       {err && (
         <div className="bg-[#FF3333]/10 border-b border-[#FF3333] text-[#FF3333] font-mono text-xs uppercase tracking-widest px-6 py-3">
           {String(err)}
+        </div>
+      )}
+
+      {videoStatus && (
+        <div className="border-b border-zinc-800 bg-black px-6 py-4">
+          <div className="mb-1 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">
+            <Video className="h-3 w-3" /> Video path
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="max-w-3xl text-sm text-zinc-300">{videoStatus.message}</p>
+            <a
+              href={videoStatus.upload_url || "https://www.tiktok.com/upload"}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 border border-zinc-700 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-white hover:text-black"
+            >
+              <ExternalLink className="h-3 w-3" /> Open TikTok upload
+            </a>
+          </div>
         </div>
       )}
 
@@ -116,19 +136,29 @@ export default function TikTokPanel({ productId }) {
                     </span>
                   )}
                 </div>
-                <button
-                  onClick={() =>
-                    copy(
-                      `HOOK:\n${draft.hook}\n\nSCRIPT:\n${draft.script}\n\nCAPTION:\n${draft.caption}\n\nHASHTAGS:\n${p.hashtags.map((h) => "#" + h).join(" ")}\n\nVISUAL:\n${draft.visual_idea}`,
-                      () => flash(`post-${i}`)
-                    )
-                  }
-                  className="font-mono text-[10px] uppercase tracking-widest border border-zinc-700 px-3 py-1.5 hover:bg-white hover:text-black transition-colors inline-flex items-center gap-2"
-                  data-testid={`copy-tiktok-${i}`}
-                >
-                  {copiedKey === `post-${i}` ? <CheckCircle2 className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                  {copiedKey === `post-${i}` ? "Copied" : "Copy post"}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() =>
+                      copy(
+                        `HOOK:\n${draft.hook}\n\nSCRIPT:\n${draft.script}\n\nCAPTION:\n${draft.caption}\n\nCTA:\n${p.tracking_url || data.product_url || ""}\n\nHASHTAGS:\n${p.hashtags.map((h) => "#" + h).join(" ")}\n\nVISUAL:\n${draft.visual_idea}`,
+                        () => flash(`post-${i}`)
+                      )
+                    }
+                    className="font-mono text-[10px] uppercase tracking-widest border border-zinc-700 px-3 py-1.5 hover:bg-white hover:text-black transition-colors inline-flex items-center gap-2"
+                    data-testid={`copy-tiktok-${i}`}
+                  >
+                    {copiedKey === `post-${i}` ? <CheckCircle2 className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                    {copiedKey === `post-${i}` ? "Copied" : "Copy post"}
+                  </button>
+                  <a
+                    href="https://www.tiktok.com/upload"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-mono text-[10px] uppercase tracking-widest border border-zinc-700 px-3 py-1.5 hover:bg-white hover:text-black transition-colors inline-flex items-center gap-2"
+                  >
+                    <ExternalLink className="w-3 h-3" /> Upload
+                  </a>
+                </div>
               </div>
 
               <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Hook</div>
@@ -159,6 +189,12 @@ export default function TikTokPanel({ productId }) {
                     value={draft.visual_idea}
                     onChange={(e) => setDrafts((rows) => rows.map((row, idx) => idx === i ? { ...row, visual_idea: e.target.value } : row))}
                     className="min-h-20 w-full text-zinc-400 text-xs bg-black border border-zinc-800 p-3 mb-3 focus:border-[#FFD600] focus:outline-none"
+                  />
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Tracked CTA link</div>
+                  <input
+                    readOnly
+                    value={p.tracking_url || data.product_url || ""}
+                    className="mb-3 w-full bg-black border border-zinc-800 px-3 py-2 font-mono text-[10px] text-zinc-300"
                   />
                   <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Hashtags</div>
                   <div className="flex flex-wrap gap-1">

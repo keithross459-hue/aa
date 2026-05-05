@@ -43,7 +43,7 @@ from integrations.stores import (
     stan_create_product,
     whop_create_product,
 )
-from integrations.tiktok_ai import generate_tiktok_posts
+from integrations.tiktok_ai import fallback_tiktok_posts, generate_tiktok_posts
 from routers.admin import public_router as announcement_public_router
 from routers.admin import router as admin_router
 from routers.analytics import router as analytics_router
@@ -1334,7 +1334,7 @@ async def stats(user=Depends(current_user)):
 
 # ---------- Meta Ads ----------
 @api.get("/meta/export/{product_id}")
-async def meta_export(product_id: str, user=Depends(current_user)):
+async def meta_export(product_id: str, request: Request, user=Depends(current_user)):
     product = await db.products.find_one({"id": product_id, "user_id": user["id"]}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found")
@@ -1489,7 +1489,7 @@ async def tiktok_generate(product_id: str, user=Depends(current_user)):
         posts = await generate_tiktok_posts(product, count=5)
     except Exception as ex:
         log.error(f"TikTok gen failed for {product_id}: {ex}")
-        raise HTTPException(500, f"TikTok generation failed: {ex}")
+        posts = fallback_tiktok_posts(product, count=5)
 
     now = datetime.now(timezone.utc).isoformat()
     for p in posts:
@@ -1506,7 +1506,7 @@ async def tiktok_generate(product_id: str, user=Depends(current_user)):
 
 
 @api.get("/tiktok/export/{product_id}")
-async def tiktok_export(product_id: str, user=Depends(current_user)):
+async def tiktok_export(product_id: str, request: Request, user=Depends(current_user)):
     product = await db.products.find_one({"id": product_id, "user_id": user["id"]}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found")
@@ -1520,7 +1520,7 @@ async def tiktok_export(product_id: str, user=Depends(current_user)):
     real_listing = next((l for l in listings_rows if l.get("real") and l.get("status") == "LIVE"), None)
     product_url = (real_listing or {}).get("listing_url", "")
 
-    backend_base = os.environ.get("BACKEND_URL", "")
+    backend_base = _tracking_base(request)
     for idx, r in enumerate(rows):
         content_id = f"tiktok_post_{idx+1}"
         r["content_id"] = content_id
@@ -1534,6 +1534,12 @@ async def tiktok_export(product_id: str, user=Depends(current_user)):
         "product_url": product_url,
         "posts": rows,
         "count": len(rows),
+        "video_generation": {
+            "configured": False,
+            "status": "manual_video_required",
+            "message": "This engine creates scripts, captions, visual briefs, and tracked links. Actual video-file rendering and TikTok auto-posting are not connected yet.",
+            "upload_url": "https://www.tiktok.com/upload",
+        },
     }
 
 
@@ -1548,6 +1554,13 @@ def _append_utm(url: str, source: str, product_id: str, content_id: str) -> str:
     params["utm_campaign"] = product_id
     params["utm_content"] = content_id
     return urlunparse(parsed._replace(query=urlencode(params)))
+
+
+def _tracking_base(request: Request) -> str:
+    configured = os.environ.get("TRACKING_BASE_URL", "").strip()
+    if configured:
+        return configured.rstrip("/")
+    return str(request.base_url).rstrip("/")
 
 
 def _track_url(backend_base: str, product_id: str, source: str, content_id: str) -> str:
@@ -1839,7 +1852,7 @@ async def analytics(product_id: str, user=Depends(current_user)):
 
 
 @api.get("/first-result/{product_id}")
-async def first_result_status(product_id: str, user=Depends(current_user)):
+async def first_result_status(product_id: str, request: Request, user=Depends(current_user)):
     product = await db.products.find_one({"id": product_id, "user_id": user["id"]}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found")
@@ -1870,15 +1883,11 @@ async def first_result_status(product_id: str, user=Depends(current_user)):
     product_url = (real_listing or {}).get("listing_url", "")
     launch_times = [l.get("launched_at") for l in listings if l.get("launched_at")]
     launched_at = product.get("launched_at") or (min(launch_times) if launch_times else None)
-    backend_base = os.environ.get("BACKEND_URL", "")
+    backend_base = _tracking_base(request)
     for idx, row in enumerate(posts):
         content_id = f"tiktok_post_{idx + 1}"
         row["content_id"] = content_id
-        row["tracking_url"] = (
-            _track_url(backend_base, product_id, "tiktok", content_id)
-            if backend_base else
-            _append_utm(product_url, "tiktok", product_id, content_id)
-        )
+        row["tracking_url"] = _track_url(backend_base, product_id, "tiktok", content_id)
 
     return {
         "product_id": product_id,
