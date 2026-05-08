@@ -90,3 +90,8 @@ async def current_admin(user=Depends(current_user)):
 
 def is_owner_email(email: str) -> bool:
     return bool(OWNER_EMAIL) and email.lower() == OWNER_EMAIL
+
+
+def is_admin_user(user: dict) -> bool:
+    """Check if user is an admin."""
+    return user.get("role") == "admin" or is_owner_email(user.get("email", ""))

@@ -1,5 +1,4 @@
- everythung fakke take out 
- """
+"""
 FiiLTHY.AI — Viral Marketing SaaS Backend
 - JWT Auth (with admin seed, referral attribution, welcome email)
 - AI generates Digital Products
@@ -880,12 +879,6 @@ async def get_settings(user=Depends(current_user)):
             "fields": user_settings.redact_for_display(doc),
             "required": required,
         }
-        
-            "configured": (user_configured or env_configured),
-            "configured_source": "user" if user_configured else ("environment" if env_configured else None),
-            "fields": user_settings.redact_for_display(doc),
-            "required": required,
-        }
     return {"providers": providers_view, "schema": user_settings.PROVIDERS}
 
 
@@ -1260,9 +1253,8 @@ def _safe_filename(text: str) -> str:
 
 
 async def _has_product_access(product: Dict[str, Any], user: Dict[str, Any]) -> bool:
-    # Enterprise/admin override: operators can use the full app without paywall.
-    # We keep this logic here so it applies consistently to downloads and creative generation.
-    if user.get("role") in {"admin"}:
+    # Admin has full access without any paywall.
+    if user.get("role") in {"admin"} or (user.get("email", "").lower() == os.environ.get("OWNER_EMAIL", "").lower() and os.environ.get("OWNER_EMAIL")):
         return True
     if (user.get("plan") or "free") != "free":
         return True
@@ -1711,7 +1703,8 @@ async def download_all_products(user=Depends(current_user)):
     products = await db.products.find({"user_id": user["id"]}, {"_id": 0}).to_list(1000)
     if not products:
         raise HTTPException(404, "No products to download")
-    if (user.get("plan") or "free") == "free":
+    is_admin = user.get("role") == "admin" or (user.get("email", "").lower() == os.environ.get("OWNER_EMAIL", "").lower() and os.environ.get("OWNER_EMAIL"))
+    if (user.get("plan") or "free") == "free" and not is_admin:
         paid_ids = {
             row["product_id"]
             for row in await db.product_unlocks.find(

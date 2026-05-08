@@ -113,7 +113,8 @@ async def create_product_checkout(req: ProductCheckoutReq, user=Depends(current_
         {"product_id": req.product_id, "user_id": user["id"], "payment_status": "paid"},
         {"_id": 0},
     )
-    if existing or (user.get("plan") or "free") != "free":
+    is_admin = user.get("role") == "admin" or (user.get("email", "").lower() == os.environ.get("OWNER_EMAIL", "").lower() and os.environ.get("OWNER_EMAIL"))
+    if is_admin or existing or (user.get("plan") or "free") != "free":
         return {"already_unlocked": True, "url": f"{req.origin_url.rstrip('/')}/app/products/{req.product_id}"}
 
     origin = req.origin_url.rstrip("/")
@@ -158,23 +159,25 @@ async def product_unlock_audit(req: ProductUnlockAuditReq, user=Depends(current_
         {"product_id": req.product_id, "user_id": user["id"], "payment_status": "paid"},
         {"_id": 0},
     )
+    is_admin = user.get("role") == "admin" or (user.get("email", "").lower() == os.environ.get("OWNER_EMAIL", "").lower() and os.environ.get("OWNER_EMAIL"))
     plan = user.get("plan") or "free"
-    locked = plan == "free" and not existing
+    locked = plan == "free" and not existing and not is_admin
     checks: List[Dict[str, Any]] = [
         {"name": "product_found", "ok": True, "detail": product.get("title", "")},
         {"name": "stripe_configured", "ok": stripe_service.configured(), "detail": "Stripe live/test key is present" if stripe_service.configured() else "Stripe key is missing"},
-        {"name": "lock_state", "ok": locked or bool(existing) or plan != "free", "detail": "locked checkout required" if locked else "user already has access"},
-        {"name": "download_protection", "ok": True, "detail": "PDF, bundle, cover, campaigns, and videos require unlock or paid plan"},
+        {"name": "lock_state", "ok": not locked, "detail": "admin bypass enabled" if is_admin else ("locked checkout required" if locked else "user already has access")},
+        {"name": "download_protection", "ok": True, "detail": "Admin bypass enabled. PDF, bundle, cover, campaigns, and videos are fully accessible." if is_admin else "PDF, bundle, cover, campaigns, and videos require unlock or paid plan"},
     ]
     return {
         "ok": all(c["ok"] for c in checks),
-        "real_payment_path": True,
+        "real_payment_path": not is_admin,
+        "admin_bypass": is_admin,
         "product_id": req.product_id,
         "amount_usd": PRODUCT_UNLOCK_PRICE_USD,
         "currently_locked": locked,
         "checkout_route": "/api/billing/create-product-checkout",
         "success_status_route": "/api/billing/status/{session_id}",
-        "note": "This audit does not fake a paid unlock. A product unlock is granted only after Stripe reports payment_status=paid.",
+        "note": "Admin users bypass all paywall restrictions. No payment required." if is_admin else "This audit does not fake a paid unlock. A product unlock is granted only after Stripe reports payment_status=paid.",
         "checks": checks,
     }
 
