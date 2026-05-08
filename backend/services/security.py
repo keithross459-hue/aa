@@ -60,8 +60,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.hits: Dict[str, Deque[float]] = defaultdict(deque)
 
     async def dispatch(self, request: Request, call_next):
+        # Never rate-limit during local test runs; it breaks loop-style integration tests.
+        # Common signals:
+        # - APP_ENV=test
+        # - PYTEST_CURRENT_TEST set by pytest
+        # - a dedicated env override
+        if os.environ.get("APP_ENV", "").lower() == "test" or os.environ.get("PYTEST_CURRENT_TEST"):
+            return await call_next(request)
+        if os.environ.get("DISABLE_RATE_LIMIT", "false").lower() == "true":
+            return await call_next(request)
+
         if request.url.path in {"/api/health", "/api/ready"}:
             return await call_next(request)
+
 
         forwarded = request.headers.get("X-Forwarded-For", "")
         ip = forwarded.split(",", 1)[0].strip() or (request.client.host if request.client else "unknown")

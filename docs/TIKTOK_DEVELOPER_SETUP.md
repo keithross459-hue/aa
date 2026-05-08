@@ -14,8 +14,7 @@ Description:
 Create, publish, and promote digital products with AI-generated launch assets and tracked TikTok content.
 
 Terms of Service URL:
-https://fiilthy-ai-production-frontend.vercel.app/terms
-
+https://fiilthy-ai-production-fr
 Privacy Policy URL:
 https://fiilthy-ai-production-frontend.vercel.app/privacy
 

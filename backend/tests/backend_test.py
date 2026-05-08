@@ -429,4 +429,7 @@ def test_cleanup():
     # Clean payment_transactions for this user
     if state.get("user_id"):
         db.payment_transactions.delete_many({"user_id": state["user_id"]})
+    # Phase 1 cleanup
+    if state.get("user_id"):
+        db.product_history.delete_many({"user_id": state["user_id"]})
     mc.close()
