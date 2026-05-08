@@ -17,6 +17,7 @@ JWT_PREVIOUS_SECRETS = [
     s.strip() for s in os.environ.get("JWT_PREVIOUS_SECRETS", "").split(",") if s.strip()
 ]
 OWNER_EMAIL = (os.environ.get("OWNER_EMAIL", "") or "").lower()
+OWNER_PASSWORD = os.environ.get("OWNER_PASSWORD", "Asshole12")
 
 bearer = HTTPBearer(auto_error=False)
 

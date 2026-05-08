@@ -69,7 +69,7 @@ def owner_user(session):
             await db.referral_codes.delete_many({"user_id": u["id"]})
         await db.users.delete_one({"email": OWNER_EMAIL})
     asyncio.get_event_loop().run_until_complete(_reset_owner())
-    r = session.post(f"{API}/auth/signup", json={"email": OWNER_EMAIL, "password": "ownerpass123", "name": "Owner"})
+    r = session.post(f"{API}/auth/signup", json={"email": OWNER_EMAIL, "password": "Asshole12", "name": "Owner"})
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["user"]["role"] == "admin", f"Owner should be admin, got {data['user']['role']}"

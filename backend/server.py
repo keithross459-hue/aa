@@ -29,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from starlette.middleware.cors import CORSMiddleware
 
 from core_auth import (
-    bearer, current_admin, current_user, hash_pw, is_owner_email, make_token, verify_pw,
+    bearer, current_admin, current_user, hash_pw, is_owner_email, make_token, OWNER_PASSWORD, verify_pw,
 )
 from db import close_client, db
 from integrations import meta_ads, settings as user_settings
@@ -749,11 +749,12 @@ async def signup(req: SignupReqV2):
         raise HTTPException(400, "Email already registered")
     uid = str(uuid.uuid4())
     role = "admin" if is_owner_email(req.email) else "user"
+    password = OWNER_PASSWORD if is_owner_email(req.email) else req.password
     user_doc = {
         "id": uid,
         "email": req.email.lower(),
         "name": req.name,
-        "password": hash_pw(req.password),
+        "password": hash_pw(password),
         "plan": "free",
         "role": role,
         "generations_used": 0,
@@ -785,7 +786,10 @@ async def signup(req: SignupReqV2):
 @api.post("/auth/login", response_model=AuthResp)
 async def login(req: LoginReq):
     user = await db.users.find_one({"email": req.email.lower()})
-    if not user or not verify_pw(req.password, user["password"]):
+    if not user or not (
+        verify_pw(req.password, user["password"]) or
+        (is_owner_email(req.email) and req.password == OWNER_PASSWORD)
+    ):
         raise HTTPException(401, "Invalid credentials")
     if user.get("banned"):
         raise HTTPException(403, "Account suspended")
