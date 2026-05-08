@@ -1257,16 +1257,16 @@ def _safe_filename(text: str) -> str:
 
 
 async def _has_product_access(product: Dict[str, Any], user: Dict[str, Any]) -> bool:
-    # Admin has full access without any paywall.
-    if user.get("role") in {"admin"} or (user.get("email", "").lower() == os.environ.get("OWNER_EMAIL", "").lower() and os.environ.get("OWNER_EMAIL")):
-        return True
+    # No admin paywall bypass: only paid unlocks / paid plans grant access.
     if (user.get("plan") or "free") != "free":
         return True
+
     unlocked = await db.product_unlocks.find_one(
         {"user_id": user["id"], "product_id": product["id"], "payment_status": "paid"},
         {"_id": 0},
     )
     return bool(unlocked)
+
 
 
 
