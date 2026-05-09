@@ -159,24 +159,28 @@ async def product_unlock_audit(req: ProductUnlockAuditReq, user=Depends(current_
         {"product_id": req.product_id, "user_id": user["id"], "payment_status": "paid"},
         {"_id": 0},
     )
+    # Admin bypass: admins have full access regardless of plan.
+    is_admin = user.get("role") == "admin" or (user.get("email", "").lower() == os.environ.get("OWNER_EMAIL", "").lower() and os.environ.get("OWNER_EMAIL"))
+    admin_bypass = is_admin
+    
     plan = user.get("plan") or "free"
-    locked = plan == "free" and not existing
+    locked = (plan == "free" and not existing) and not admin_bypass
     checks: List[Dict[str, Any]] = [
         {"name": "product_found", "ok": True, "detail": product.get("title", "")},
         {"name": "stripe_configured", "ok": stripe_service.configured(), "detail": "Stripe live/test key is present" if stripe_service.configured() else "Stripe key is missing"},
-        {"name": "lock_state", "ok": not locked, "detail": ("locked checkout required" if locked else "user already has access")},
+        {"name": "lock_state", "ok": not locked, "detail": ("locked checkout required" if locked else "user already has access" + (" (admin bypass)" if admin_bypass else ""))},
         {"name": "download_protection", "ok": True, "detail": "PDF, bundle, cover, campaigns, and videos require unlock or paid plan"},
     ]
     return {
         "ok": all(c["ok"] for c in checks),
         "real_payment_path": True,
-        "admin_bypass": False,
+        "admin_bypass": admin_bypass,
         "product_id": req.product_id,
         "amount_usd": PRODUCT_UNLOCK_PRICE_USD,
         "currently_locked": locked,
         "checkout_route": "/api/billing/create-product-checkout",
         "success_status_route": "/api/billing/status/{session_id}",
-        "note": "No admin bypass: a product unlock is granted only after Stripe reports payment_status=paid.",
+        "note": "Admin users bypass paywall restrictions. Other users need product unlocks after Stripe confirms payment_status=paid.",
         "checks": checks,
     }
 
