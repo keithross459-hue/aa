@@ -1,16 +1,34 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../api";
-import { Loader2, Flame, TrendingUp, MousePointerClick, DollarSign, Target, Eye, CircleSlash } from "lucide-react";
+import { Loader2, Flame, TrendingUp, MousePointerClick, DollarSign, Target, Eye, CircleSlash, Download, X } from "lucide-react";
 
 export default function AnalyticsPanel({ productId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [showSignal, setShowSignal] = useState(false);
+  const [lastSaleCount, setLastSaleCount] = useState(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const r = await api.get(`/analytics/${productId}`);
+      
+      // Trigger Winning Signal if sales increased
+      const newSales = r.data?.totals?.sales || 0;
+      if (lastSaleCount !== null && newSales > lastSaleCount) {
+        setShowSignal(true);
+        // Play success sound
+        const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2020/2020-preview.mp3");
+        audio.volume = 0.4;
+        audio.play().catch(() => {
+          // Browsers block audio until the user interacts with the page once
+          console.log("Sound blocked: Await user interaction");
+        });
+        // Auto-hide after 5 seconds
+        setTimeout(() => setShowSignal(false), 5000);
+      }
+      setLastSaleCount(newSales);
+      
       setData(r.data);
     } catch (ex) {
       setErr(ex?.response?.data?.detail || "Failed to load analytics");
@@ -20,6 +38,7 @@ export default function AnalyticsPanel({ productId }) {
   }, [productId]);
 
   useEffect(() => {
+    setLoading(true);
     load();
     const t = setInterval(load, 10000);
     return () => clearInterval(t);
@@ -56,7 +75,27 @@ export default function AnalyticsPanel({ productId }) {
         <div className="mb-1 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">Winner Loop Controller</div>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto]">
           <div className="text-sm text-zinc-300">
-            {top.product_id ? `${top.reason} Next: ${top.next_action}` : "No opportunity yet. Waiting for real impressions, clicks, and conversion data."}
+            {top.product_id ? (
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  {top.is_winner && <Flame className="w-4 h-4 text-[#FFD600]" />}
+                  <span>{top.reason}</span>
+                </div>
+                <div className="flex items-center gap-4 mt-1">
+                  <span className="text-[#FFD600] font-bold">Next: {top.next_action}</span>
+                  {top.is_winner && top.source === 'tiktok' && top.content_id && (
+                    <a 
+                      href={`/api/products/${productId}/promo-video/${top.content_id}?style=pain_solution`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-[#FFD600] text-black px-3 py-1 font-mono text-[10px] uppercase tracking-widest font-bold flex items-center gap-1 hover:bg-yellow-400 transition-colors"
+                    >
+                      <Download className="w-3 h-3" /> Download Winning Ad
+                    </a>
+                  )}
+                </div>
+              </div>
+            ) : "No opportunity yet. Waiting for real impressions, clicks, and conversion data."}
           </div>
           <div className="flex flex-wrap gap-2 font-mono text-[10px] uppercase tracking-widest">
             <span className="bg-[#FFD600] px-2 py-1 text-black">{(loop.winner_products || []).length} scale</span>
@@ -106,9 +145,22 @@ export default function AnalyticsPanel({ productId }) {
                   data-testid={`analytics-row-${i}`}
                 >
                   <Td>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500 w-16">{r.source}</span>
-                      <span className="font-mono text-sm">{r.content_id}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500 w-16">{r.source}</span>
+                        <span className="font-mono text-sm">{r.content_id}</span>
+                      </div>
+                      {r.source === 'tiktok' && (
+                        <a 
+                          href={`/api/products/${productId}/promo-video/${r.content_id}?style=pain_solution`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#FFD600] hover:text-yellow-400 transition-colors"
+                          title="Download Video"
+                        >
+                          <Download className="w-4 h-4" />
+                        </a>
+                      )}
                     </div>
                   </Td>
                   <Td right mono>{r.impressions}</Td>
@@ -134,6 +186,24 @@ export default function AnalyticsPanel({ productId }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* WINNING SIGNAL TOAST */}
+      {showSignal && (
+        <div className="fixed bottom-6 right-6 z-50 animate-bounce">
+          <div className="bg-[#FFD600] text-black border-2 border-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] p-4 flex items-center gap-4">
+            <div className="bg-black p-2">
+              <Flame className="w-6 h-6 text-[#FFD600]" />
+            </div>
+            <div>
+              <div className="font-mono text-[10px] uppercase font-bold tracking-tighter">Winning Signal Detected</div>
+              <div className="font-heading text-xl leading-none">NEW SALE TRACKED</div>
+            </div>
+            <button onClick={() => setShowSignal(false)} className="ml-4 hover:scale-110 transition-transform">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
     </div>

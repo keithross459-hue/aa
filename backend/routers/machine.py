@@ -100,6 +100,8 @@ async def run_machine(req: MachineReq, user=Depends(current_user)):
     raise HTTPException(
         409,
         "Auto Mode is disabled in real-only mode. Use the product builder, then publish through configured real store integrations.",
+        status.HTTP_409_CONFLICT,
+        "Auto Mode is currently disabled. Please use the Manual Product Builder to launch your offers."
     )
     now = datetime.now(timezone.utc).isoformat()
     audience = req.audience or "ambitious creators"

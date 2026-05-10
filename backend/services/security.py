@@ -97,6 +97,8 @@ async def ensure_indexes(db):
         (db.campaigns, [("user_id", 1), ("product_id", 1), ("created_at", -1)], {}),
         (db.listings, [("user_id", 1), ("product_id", 1), ("launched_at", -1)], {}),
         (db.tracking_events, [("product_id", 1), ("user_id", 1), ("event_type", 1)], {}),
+        (db.tracking_events, [("user_id", 1), ("created_at", -1)], {}),
+        (db.tiktok_post_queue, [("status", 1), ("scheduled_for", 1)], {}),
         (db.payment_transactions, [("session_id", 1)], {"unique": False}),
         (db.referral_codes, [("code", 1)], {"unique": True}),
         (db.referral_attributions, [("referrer_user_id", 1), ("referred_user_id", 1)], {}),

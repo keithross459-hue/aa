@@ -66,7 +66,7 @@ def _decode_token(token: str):
     raise last_error or ValueError("Invalid token")
 
 
-async def current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer)):
+async def current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer)) -> dict:
     if not creds:
         raise HTTPException(401, "Not authenticated")
     try:

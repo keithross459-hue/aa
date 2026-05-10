@@ -28,12 +28,21 @@ def _provider_from_key(api_key: str) -> str:
     return "openai"
 
 
+def _default_model_for_provider(provider: str) -> str:
+    if provider == "anthropic":
+        return os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+    if provider == "gemini":
+        return os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    return os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+
 class LlmProviderUnavailable(RuntimeError):
     pass
 
 
 def _direct_generate(system: str, prompt: str, api_key: str) -> str:
     provider = _provider_from_key(api_key)
+    model = _default_model_for_provider(provider)
     timeout = float(os.environ.get("LLM_TIMEOUT_SECONDS", "60"))
 
     if provider == "anthropic":
@@ -45,7 +54,7 @@ def _direct_generate(system: str, prompt: str, api_key: str) -> str:
                 "content-type": "application/json",
             },
             json={
-                "model": os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
+                "model": model,
                 "max_tokens": int(os.environ.get("LLM_MAX_TOKENS", "4096")),
                 "system": system,
                 "messages": [{"role": "user", "content": prompt}],
@@ -60,13 +69,16 @@ def _direct_generate(system: str, prompt: str, api_key: str) -> str:
         return "\n".join(part.get("text", "") for part in data.get("content", []) if part.get("type") == "text")
 
     if provider == "gemini":
-        model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
         resp = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            f"https://generativelanguage.googleapis.com/v1beta2/models/{model}:generateMessage",
             params={"key": api_key},
             json={
-                "systemInstruction": {"parts": [{"text": system}]},
-                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "temperature": float(os.environ.get("LLM_TEMPERATURE", "0.2")),
+                "candidateCount": 1,
+                "messages": [
+                    {"author": "system", "content": [{"type": "text", "text": system}]},
+                    {"author": "user", "content": [{"type": "text", "text": prompt}]},
+                ],
             },
             timeout=timeout,
         )
@@ -75,18 +87,23 @@ def _direct_generate(system: str, prompt: str, api_key: str) -> str:
         except requests.HTTPError as ex:
             raise LlmProviderUnavailable(f"gemini_unavailable:{resp.status_code}") from ex
         data = resp.json()
-        parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-        return "\n".join(part.get("text", "") for part in parts)
+        candidates = data.get("candidates", [])
+        if not candidates:
+            raise LlmProviderUnavailable("gemini_unavailable:no_candidates")
+        parts = candidates[0].get("content", [])
+        return "\n".join(item.get("text", "") for item in parts if item.get("text"))
 
     resp = requests.post(
         "https://api.openai.com/v1/chat/completions",
         headers={"Authorization": f"Bearer {api_key}", "content-type": "application/json"},
         json={
-            "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            "model": model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
+            "max_tokens": int(os.environ.get("LLM_MAX_TOKENS", "4096")),
+            "temperature": float(os.environ.get("LLM_TEMPERATURE", "0.2")),
         },
         timeout=timeout,
     )
@@ -105,12 +122,15 @@ async def generate_text(
     provider: Optional[str] = None,
     model: Optional[str] = None,
 ) -> str:
-    if LlmChat and UserMessage:
+    provider = provider or _provider_from_key(api_key)
+    model = model or _default_model_for_provider(provider)
+
+    if provider == "anthropic" and LlmChat and UserMessage:
         chat = LlmChat(
             api_key=api_key,
             session_id=session_id,
             system_message=system,
-        ).with_model(provider or "anthropic", model or "claude-sonnet-4-5-20250929")
+        ).with_model(provider, model)
         return await chat.send_message(UserMessage(text=prompt))
 
     return await asyncio.to_thread(_direct_generate, system, prompt, api_key)

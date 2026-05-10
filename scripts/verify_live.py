@@ -12,6 +12,8 @@ import sys
 from typing import Dict
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 def get_json(url: str, headers: Dict[str, str] | None = None) -> dict:
@@ -29,6 +31,10 @@ def main() -> int:
     backend = args.backend.rstrip("/")
     frontend = args.frontend.rstrip("/")
 
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=1, status_forcelist=[502, 503, 504])
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+
     checks = [
         "/api/health",
         "/api/ready",
@@ -38,29 +44,52 @@ def main() -> int:
         "/api/legal/privacy",
         "/api/legal/terms",
     ]
-    for path in checks:
-        get_json(f"{backend}{path}")
-        print(f"OK backend {path}")
 
-    f = requests.get(frontend, timeout=20)
+    print("--- Starting Backend Health Checks ---")
+    for path in checks:
+        try:
+            r = session.get(f"{backend}{path}", timeout=20)
+            if r.status_code >= 400:
+                raise RuntimeError(f"GET {path} -> {r.status_code}")
+            
+            res = r.json() if "application/json" in r.headers.get("content-type", "").lower() else {}
+            
+            if path == "/api/status":
+                analytics_status = res.get("analytics")
+                if analytics_status == "not_configured":
+                    print(f"!! WARNING: PostHog (analytics) is NOT_CONFIGURED at {path}")
+                else:
+                    print(f"OK: Analytics Status: {analytics_status}")
+            print(f"PASS: {path}")
+        except Exception as e:
+            print(f"FAIL: {path} - {e}")
+            return 1
+
+    print("\n--- Starting Frontend Health Checks ---")
+    f = session.get(frontend, timeout=20)
     if f.status_code >= 400:
         raise RuntimeError(f"frontend failed: {f.status_code}")
-    print("OK frontend /")
+    print(f"PASS: {frontend} (Status: {f.status_code})")
 
     email = os.environ.get("FIILTHY_TEST_EMAIL")
     password = os.environ.get("FIILTHY_TEST_PASSWORD")
     if email and password:
-        r = requests.post(f"{backend}/api/auth/login", json={"email": email, "password": password}, timeout=20)
+        print("\n--- Starting Authenticated Checks ---")
+        r = session.post(f"{backend}/api/auth/login", json={"email": email, "password": password}, timeout=20)
         if r.status_code >= 400:
             raise RuntimeError(f"login failed: {r.status_code} {r.text[:200]}")
         token = r.json()["token"]
         headers = {"Authorization": f"Bearer {token}"}
         for path in ["/api/auth/me", "/api/stats", "/api/billing/invoices", "/api/referrals/me"]:
-            get_json(f"{backend}{path}", headers=headers)
-            print(f"OK authed {path}")
+            r = session.get(f"{backend}{path}", headers=headers, timeout=20)
+            if r.status_code >= 400:
+                raise RuntimeError(f"Auth check failed for {path}: {r.status_code}")
+            print(f"PASS: Authed {path}")
     else:
         print("SKIP authed checks: set FIILTHY_TEST_EMAIL/FIILTHY_TEST_PASSWORD")
+        print("\nSKIP: Authenticated checks (set FIILTHY_TEST_EMAIL/FIILTHY_TEST_PASSWORD)")
 
+    print("\nALL SYSTEMS GREEN: Deployment verified.")
     return 0
 
 

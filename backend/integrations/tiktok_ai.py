@@ -14,11 +14,11 @@ SYSTEM_MSG = (
 )
 
 HOOK_PATTERNS = [
-    '"Nobody is talking about this…"',
-    '"This made me $___ in __ days"',
-    '"You\'re wasting time if you\'re not using this"',
-    '"I tested this so you don\'t have to"',
-    '"Stop scrolling. This changes everything."',
+    '"Stop trying to sell [Product Category] the old way. Do this instead…"',
+    '"I found a way to automate [Niche Problem] and it feels like a cheat code."',
+    '"You don\'t need a massive following to sell [Product Name]. You just need this structure."',
+    '"Most people fail at [Niche] because of one specific mistake. Here it is."',
+    '"If I had to start from $0 with [Product Type] today, this is exactly what I\'d post."',
 ]
 
 

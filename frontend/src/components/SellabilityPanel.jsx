@@ -14,6 +14,7 @@ import {
   Target,
   Wrench,
 } from "lucide-react";
+import { useAuth } from "../auth";
 import api from "../api";
 
 const FIXES = [
@@ -38,6 +39,7 @@ const SCORE_LABELS = {
 };
 
 export default function SellabilityPanel({ productId, product, locked, onUnlock, onProductUpdated }) {
+  const { user } = useAuth();
   const [review, setReview] = useState(null);
   const [audit, setAudit] = useState(null);
   const [busy, setBusy] = useState("");
@@ -191,6 +193,14 @@ export default function SellabilityPanel({ productId, product, locked, onUnlock,
         audit={audit}
         onUnlock={onUnlock}
       />
+      {user?.role !== "admin" && (
+        <UnlockPreview
+          locked={locked}
+          price={product?.unlock_price_usd || 9}
+          audit={audit}
+          onUnlock={onUnlock}
+        />
+      )}
     </section>
   );
 }

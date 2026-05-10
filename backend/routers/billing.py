@@ -25,8 +25,8 @@ log = logging.getLogger("filthy.billing")
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 webhook_router = APIRouter(prefix="/api/webhook", tags=["webhook"])
 
-PLAN_LIMITS = {"free": 5, "starter": 50, "pro": 500, "enterprise": 999999}
-PRODUCT_UNLOCK_PRICE_USD = float(os.environ.get("PRODUCT_UNLOCK_PRICE_USD", "9"))
+PLAN_LIMITS = {"free": 999999, "starter": 999999, "pro": 999999, "enterprise": 999999}
+    PRODUCT_UNLOCK_PRICE_USD = 0.0  # Paywall disabled
 
 
 class CheckoutReq(BaseModel):
@@ -162,7 +162,7 @@ async def product_unlock_audit(req: ProductUnlockAuditReq, user=Depends(current_
     # Admin bypass: admins have full access regardless of plan.
     is_admin = user.get("role") == "admin" or (user.get("email", "").lower() == os.environ.get("OWNER_EMAIL", "").lower() and os.environ.get("OWNER_EMAIL"))
     admin_bypass = is_admin
-    
+
     plan = user.get("plan") or "free"
     locked = (plan == "free" and not existing) and not admin_bypass
     checks: List[Dict[str, Any]] = [

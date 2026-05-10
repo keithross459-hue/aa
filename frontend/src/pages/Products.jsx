@@ -79,6 +79,8 @@ export default function Products() {
   const [err, setErr] = useState("");
   const [latest, setLatest] = useState(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [quality, setQuality] = useState(null);
+  const [improving, setImproving] = useState(false);
   const remixId = searchParams.get("remix");
   const batch = searchParams.get("batch");
   const isFree = (user?.plan || "free") === "free";
@@ -95,6 +97,53 @@ export default function Products() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (niche.length < 10) {
+      setQuality(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const r = await api.post("/prompts/check-quality", { prompt: niche });
+        setQuality(r.data.result);
+      } catch (ex) {
+        console.error("Quality check failed", ex);
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [niche]);
+
+  const improve = async () => {
+    if (!niche || niche.length < 5) return;
+    setImproving(true);
+    try {
+      const r = await api.post("/prompts/improve", { prompt: niche });
+      if (r.data.ok && r.data.result.improved_prompt) {
+        setNiche(r.data.result.improved_prompt);
+      }
+    } catch (ex) {
+      console.error("Improvement failed", ex);
+    } finally {
+      setImproving(false);
+    }
+  };
+
+  const getInspiration = async () => {
+    try {
+      const r = await api.get(`/prompts/examples?category=${productType}`);
+      if (r.data.ok && r.data.examples?.length > 0) {
+        const rand = r.data.examples[Math.floor(Math.random() * r.data.examples.length)];
+        // Extract prompt from "Prompt: \"...\""
+        const m = rand.match(/Prompt: "(.*)"/);
+        if (m) setNiche(m[1]);
+        else if (rand.includes(":")) setNiche(rand.split(":")[1].trim().replace(/^"/, "").replace(/"$/, ""));
+        else setNiche(rand);
+      }
+    } catch (ex) {
+      console.error("Inspiration failed", ex);
+    }
+  };
 
   useEffect(() => {
     return startStepTimer(firstRun ? "choose_niche" : "builder");
@@ -266,7 +315,48 @@ export default function Products() {
             </div>
           )}
           <StepLabel n="01" label="Pick the buyer and outcome" />
-          <Field label="What niche do you want?" value={niche} onChange={setNiche} placeholder="Fitness plans for busy founders" testid="niche-input" />
+          <div className="relative">
+            <Field label="What niche do you want?" value={niche} onChange={setNiche} placeholder="Fitness plans for busy founders" testid="niche-input" />
+            <div className="absolute top-0 right-0 flex items-center gap-2">
+              {niche.length >= 5 && (
+                <button
+                  type="button"
+                  onClick={improve}
+                  disabled={improving}
+                  className="mb-2 flex items-center gap-1 font-mono text-[9px] uppercase tracking-widest text-[#FFD600] hover:underline"
+                  title="Optimize with AI"
+                >
+                  {improving ? <Loader2 className="h-3 w-3 animate-spin" /> : <WandSparkles className="h-3 w-3" />}
+                  Improve
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={getInspiration}
+                className="mb-2 flex items-center gap-1 font-mono text-[9px] uppercase tracking-widest text-zinc-500 hover:text-white"
+                title="Get example ideas"
+              >
+                Inspiration
+              </button>
+            </div>
+          </div>
+
+          {quality && (
+            <div className="mb-4 flex flex-wrap items-center gap-3 border border-zinc-800 bg-black p-3">
+              <div className="flex items-center gap-2">
+                <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">Quality score</div>
+                <div className={`font-mono text-sm font-bold ${quality.quality_score >= 80 ? "text-green-400" : quality.quality_score >= 60 ? "text-[#FFD600]" : "text-red-400"}`}>
+                  {quality.quality_score}%
+                </div>
+              </div>
+              {quality.suggestions?.length > 0 && (
+                <div className="w-full mt-1">
+                  <div className="font-mono text-[9px] uppercase tracking-widest text-zinc-500 mb-1">AI Suggestion</div>
+                  <div className="text-[11px] text-zinc-300 italic">"{quality.suggestions[0]}"</div>
+                </div>
+              )}
+            </div>
+          )}
 
           <button
             type="button"
