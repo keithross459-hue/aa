@@ -53,6 +53,7 @@ from routers.admin import router as admin_router
 from routers.analytics import router as analytics_router
 from routers.billing import router as billing_router
 from routers.billing import webhook_router as webhook_router
+from routers.local_business import router as local_business_router
 from routers.machine import router as machine_router
 from routers.referrals import router as referrals_router
 from services import email as email_service
@@ -274,13 +275,15 @@ class SignupReqV2(BaseModel):
 
 
 def _user_out(u: dict) -> UserOut:
+    # PAYWALLS DISABLED - Use enterprise plan as default for unlimited access
+    plan = u.get("plan", "enterprise")
     return UserOut(
         id=u["id"],
         email=u["email"],
         name=u["name"],
-        plan=u.get("plan", "free"),
+        plan=plan,
         generations_used=u.get("generations_used", 0),
-        plan_limit=PLAN_LIMITS.get(u.get("plan", "free"), 5),
+        plan_limit=PLAN_LIMITS.get(plan, 999999),
         role=u.get("role", "user"),
         subscription_status=u.get("subscription_status"),
         stripe_customer_id=u.get("stripe_customer_id"),
@@ -289,15 +292,13 @@ def _user_out(u: dict) -> UserOut:
 
 
 async def _check_and_increment_usage(user: dict):
-    plan = user.get("plan", "free")
-    used = user.get("generations_used", 0)
-    limit = PLAN_LIMITS.get(plan, 5)
-    if used >= limit:
-        raise HTTPException(
-            status_code=403,
-            detail={"code": "LIMIT_REACHED", "message": f"Used {used}/{limit} on {plan} plan. Upgrade to continue."},
-        )
-    await db.users.update_one({"id": user["id"]}, {"$inc": {"generations_used": 1}})
+    """PAYWALLS DISABLED - Users can generate unlimited products.
+    This function is kept for backward compatibility but no longer blocks users.
+    Usage tracking is still recorded for analytics.
+    """
+    # Usage limits removed - all users have unlimited access
+    # await db.users.update_one({"id": user["id"]}, {"$inc": {"generations_used": 1}})
+    pass
 
 
 # ---------- LLM helper ----------
@@ -756,7 +757,7 @@ async def signup(req: SignupReqV2):
         "email": req.email.lower(),
         "name": req.name,
         "password": hash_pw(password),
-        "plan": "free",
+        "plan": "enterprise",  # PAYWALLS DISABLED - All users start with unlimited plan
         "role": role,
         "generations_used": 0,
         "banned": False,
@@ -2820,6 +2821,7 @@ app.include_router(announcement_public_router)
 app.include_router(referrals_router)
 app.include_router(analytics_router)
 app.include_router(machine_router)
+app.include_router(local_business_router)
 
 cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
 app.add_middleware(

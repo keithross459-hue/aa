@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../api";
+import { BEST_INCOME_PRODUCT_ID } from "../lib/incomeStrategy";
 import { AlertTriangle, CheckCircle2, Copy, ExternalLink, Gauge, Loader2, RefreshCw, Send, ShieldCheck, ShoppingCart, Target, Video, Zap } from "lucide-react";
 
 function copy(text, done) {
@@ -50,6 +51,8 @@ export default function MoneyPath() {
 
   const liveListings = listings.filter((l) => l.status === "LIVE" && l.real);
   const active = useMemo(() => {
+    const bestKnown = products.find((p) => p.id === BEST_INCOME_PRODUCT_ID);
+    if (bestKnown) return bestKnown;
     const ranked = [...products].sort((a, b) => {
       const ar = reviewsById[a.id]?.sellability_score || 0;
       const br = reviewsById[b.id]?.sellability_score || 0;

@@ -1,0 +1,50 @@
+app = "fiilthy-ai-production-backend"
+primary_region = "lax"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_ENV = "production"
+  BACKEND_URL = "https://fiilthy-ai-production-backend.fly.dev"
+  FRONTEND_URL = "https://fiilthy-ai-production-frontend.vercel.app"
+  CORS_ORIGINS = "https://fiilthy-ai-production-frontend.vercel.app,https://fiilthy-ai-production-frontend-stackdigitz-5790s-projects.vercel.app,https://fiilthy-ai-production-backend.fly.dev"
+  FORCE_HTTPS = "true"
+  RATE_LIMIT_PER_MINUTE = "120"
+  DB_NAME = "fiilthy"
+  BACKUP_DIR = "backups"
+  JWT_ISSUER = "fiilthy.ai"
+  JWT_AUDIENCE = "fiilthy-app"
+  STRIPE_PRICE_STARTER_USD = "29"
+  STRIPE_PRICE_PRO_USD = "49.99"
+  STRIPE_PRICE_ENTERPRISE_USD = "299.99"
+  SENDGRID_FROM_EMAIL = "no-reply@fiilthy.ai"
+  SENDGRID_FROM_NAME = "FiiLTHY.AI"
+  POSTHOG_HOST = "https://app.posthog.com"
+  SENTRY_TRACES_SAMPLE_RATE = "0.05"
+  LEGAL_COMPANY_NAME = "FiiLTHY.AI"
+  LEGAL_CONTACT_EMAIL = "support@fiilthy.ai"
+  REFERRAL_PAYOUT_THRESHOLD_USD = "50"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/api/health"
+    timeout = "5s"
+
+[deploy]
+  strategy = "rolling"
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1

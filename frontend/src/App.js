@@ -24,6 +24,8 @@ const Account = lazy(() => import("./pages/Account"));
 const Legal = lazy(() => import("./pages/Legal"));
 const Platforms = lazy(() => import("./pages/Platforms"));
 const MoneyPath = lazy(() => import("./pages/MoneyPath"));
+const ClientAcquisition = lazy(() => import("./pages/ClientAcquisition"));
+const LocalBusinessHome = lazy(() => import("./pages/LocalBusinessHome"));
 
 function PageLoader() {
   return <div className="p-10 font-mono text-zinc-400">Loading...</div>;
@@ -45,7 +47,9 @@ export default function App() {
 
             <Route path="/app" element={<AppLayout />}>
               <Route index element={<Dashboard />} />
+              <Route path="local" element={<LocalBusinessHome />} />
               <Route path="products" element={<Products />} />
+              <Route path="acquire" element={<ClientAcquisition />} />
               <Route path="money" element={<MoneyPath />} />
               <Route path="products/:id" element={<ProductDetail />} />
               <Route path="campaigns" element={<CampaignsList />} />

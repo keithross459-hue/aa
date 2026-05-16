@@ -2,7 +2,7 @@ import { Link, NavLink, Navigate, Outlet } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
 import api from "../api";
-import { LayoutDashboard, Package, Megaphone, Rocket, LogOut, Zap, Settings as SettingsIcon, Users, Shield, CreditCard, BarChart3, WandSparkles, UserCircle, Cable, DollarSign } from "lucide-react";
+import { LayoutDashboard, Package, Megaphone, Rocket, LogOut, Settings as SettingsIcon, Users, Shield, CreditCard, BarChart3, UserCircle, Cable, DollarSign, Target } from "lucide-react";
 
 export default function AppLayout() {
   const { user, logout, loading } = useAuth();
@@ -31,18 +31,19 @@ export default function AppLayout() {
       <header className="md:hidden border-b border-zinc-800 bg-[#09090B] sticky top-0 z-20">
         <div className="px-4 py-3 flex items-center justify-between">
           <Link to="/app" className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-[#FFD600]" strokeWidth={2.5} />
-            <span className="font-heading text-2xl tracking-wide">FiiLTHY<span className="text-[#FF3333]">.</span>AI</span>
+            <DollarSign className="w-5 h-5 text-[#FFD600]" strokeWidth={2.5} />
+            <span className="font-heading text-2xl tracking-wide">Income Desk</span>
           </Link>
           <button onClick={logout} className="p-2 text-zinc-400 hover:text-[#FF3333]" title="Log out">
             <LogOut className="w-4 h-4" />
           </button>
         </div>
         <nav className="px-2 pb-2 flex gap-1 overflow-x-auto">
-          <NavLink to="/app" end className={link}>Dashboard</NavLink>
-          <NavLink to="/app/products" className={link}>Builder</NavLink>
-          <NavLink to="/app/money" className={link}>Money</NavLink>
-          <NavLink to="/app/machine" className={link}>Automation</NavLink>
+          <NavLink to="/app" end className={link}>Sell first</NavLink>
+          <NavLink to="/app/local" className={link}>💰 Local Money</NavLink>
+          <NavLink to="/app/acquire" className={link}>Get clients</NavLink>
+          <NavLink to="/app/money" className={link}>Daily money</NavLink>
+          <NavLink to="/app/products" className={link}>Products</NavLink>
           <NavLink to="/app/billing" className={link}>Billing</NavLink>
           <NavLink to="/app/platforms" className={link}>Platforms</NavLink>
           <NavLink to="/app/referrals" className={link}>Referrals</NavLink>
@@ -57,27 +58,27 @@ export default function AppLayout() {
           className="px-5 py-6 border-b border-zinc-800 flex items-center gap-2"
           data-testid="brand-link"
         >
-          <Zap className="w-6 h-6 text-[#FFD600]" strokeWidth={2.5} />
-          <span className="font-heading text-3xl tracking-wide">FiiLTHY<span className="text-[#FF3333]">.</span>AI</span>
+          <DollarSign className="w-6 h-6 text-[#FFD600]" strokeWidth={2.5} />
+          <span className="font-heading text-3xl tracking-wide">Income Desk</span>
         </Link>
         <nav className="flex-1 py-4">
           <NavLink to="/app" end className={link} data-testid="nav-dashboard">
-            <LayoutDashboard className="w-4 h-4" /> Dashboard
+            <LayoutDashboard className="w-4 h-4" /> Sell First
           </NavLink>
-          <NavLink to="/app/products" className={link} data-testid="nav-products">
-            <Package className="w-4 h-4" /> Product Quality
+          <NavLink to="/app/acquire" className={link} data-testid="nav-acquire">
+            <Target className="w-4 h-4" /> Get Clients
           </NavLink>
           <NavLink to="/app/money" className={link} data-testid="nav-money">
-            <DollarSign className="w-4 h-4" /> Money Path
+            <DollarSign className="w-4 h-4" /> Daily Money
+          </NavLink>
+          <NavLink to="/app/products" className={link} data-testid="nav-products">
+            <Package className="w-4 h-4" /> Products
           </NavLink>
           <NavLink to="/app/campaigns" className={link} data-testid="nav-campaigns">
-            <Megaphone className="w-4 h-4" /> Ad Campaigns
+            <Megaphone className="w-4 h-4" /> Ad Copy
           </NavLink>
           <NavLink to="/app/launch" className={link} data-testid="nav-launch">
-            <Rocket className="w-4 h-4" /> Store Launches
-          </NavLink>
-          <NavLink to="/app/machine" className={link} data-testid="nav-machine">
-            <WandSparkles className="w-4 h-4" /> Final Automation
+            <Rocket className="w-4 h-4" /> Live Listings
           </NavLink>
           <NavLink to="/app/billing" className={link} data-testid="nav-billing">
             <CreditCard className="w-4 h-4" /> Billing
@@ -88,10 +89,10 @@ export default function AppLayout() {
             </NavLink>
           )}
           <NavLink to="/app/settings" className={link} data-testid="nav-settings">
-            <SettingsIcon className="w-4 h-4" /> Integrations
+            <SettingsIcon className="w-4 h-4" /> Store Keys
           </NavLink>
           <NavLink to="/app/platforms" className={link} data-testid="nav-platforms">
-            <Cable className="w-4 h-4" /> Platforms
+            <Cable className="w-4 h-4" /> Channels
           </NavLink>
           <NavLink to="/app/referrals" className={link} data-testid="nav-referrals">
             <Users className="w-4 h-4" /> Referrals
@@ -130,13 +131,8 @@ export default function AppLayout() {
             </span>
             <span>{pct}%</span>
           </div>
-          <Link
-            to="/pricing?checkout=starter"
-            className="block mt-3 text-center bg-[#FFD600] text-black font-mono text-xs uppercase tracking-widest py-2 btn-hard"
-            data-testid="upgrade-btn"
-          >
-            Unlock all - $14.50
-          </Link>
+          {/* PAYWALLS DISABLED FOR TESTING - Hide upgrade button */}
+          {/* <Link to="/pricing?checkout=starter" ... > */}
         </div>
 
         {/* User */}

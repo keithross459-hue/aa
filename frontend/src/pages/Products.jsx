@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../api";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth";
+import { INCOME_STRATEGY } from "../lib/incomeStrategy";
 import ScaleUpgradePrompt from "../components/ScaleUpgradePrompt";
 import { startStepTimer, trackOnboarding } from "../lib/onboardingTelemetry";
 import {
@@ -30,8 +31,6 @@ const TYPES = [
 ];
 
 const STYLES = ["Beginner-friendly", "Aggressive marketing", "Luxury", "Minimal", "Operator-focused"];
-const LOOP = ["Build", "Launch", "Promote", "Track", "Improve"];
-
 function winningExamples(niche, productType, style) {
   const topic = niche?.trim() || "AI side hustles";
   const typeLabel = TYPES.find((t) => t.id === productType)?.label || "Digital product";
@@ -67,14 +66,14 @@ export default function Products() {
   const { refresh, user } = useAuth();
   const [searchParams] = useSearchParams();
   const [items, setItems] = useState([]);
-  const [niche, setNiche] = useState("");
-  const [audience, setAudience] = useState("");
+  const [niche, setNiche] = useState("local service businesses following up with leads faster");
+  const [audience, setAudience] = useState(INCOME_STRATEGY.buyer);
   const [productType, setProductType] = useState("ebook");
   const [style, setStyle] = useState(STYLES[0]);
   const [mode, setMode] = useState("guided");
   const [direction, setDirection] = useState(0);
   const [priceHint, setPriceHint] = useState("$27");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState("Build scripts for missed calls, quote follow-up, review requests, and simple CRM pipeline follow-up.");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [latest, setLatest] = useState(null);
@@ -223,11 +222,11 @@ export default function Products() {
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#FFD600]">
-            Product quality workspace
+            Product builder
           </div>
-          <h1 className="font-heading text-5xl uppercase lg:text-6xl">Build something sellable</h1>
+          <h1 className="font-heading text-5xl uppercase lg:text-6xl">Start from a proven money angle</h1>
           <p className="mt-2 max-w-3xl text-zinc-400">
-            Every product should contain a clear buyer, useful deliverable, store-ready description, cover, sales copy, and promo assets before automation touches it.
+            The default niche is the clearest income path we found: local businesses that need faster lead follow-up. Change it only if you have a better buyer.
           </p>
         </div>
         {items.length > 0 && !firstRun && (
@@ -266,7 +265,7 @@ export default function Products() {
             </div>
           )}
           <StepLabel n="01" label="Pick the buyer and outcome" />
-          <Field label="What niche do you want?" value={niche} onChange={setNiche} placeholder="Fitness plans for busy founders" testid="niche-input" />
+            <Field label="Who are we helping make or save money?" value={niche} onChange={setNiche} placeholder="Local service businesses following up with leads faster" testid="niche-input" />
 
           <button
             type="button"

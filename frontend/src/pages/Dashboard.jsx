@@ -1,182 +1,185 @@
 import { useEffect, useMemo, useState } from "react";
-import api from "../api";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, CheckCircle2, MousePointerClick, Rocket, ShoppingCart, Zap } from "lucide-react";
-import { startStepTimer, trackOnboarding } from "../lib/onboardingTelemetry";
+import api from "../api";
 import { useAuth } from "../auth";
+import { INCOME_STRATEGY, LIVE_PRODUCT_LINKS } from "../lib/incomeStrategy";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  MousePointerClick,
+  RefreshCw,
+  Send,
+  ShoppingCart,
+  Target,
+  TrendingUp,
+} from "lucide-react";
+
+function copyText(text, onDone) {
+  navigator.clipboard.writeText(text).then(onDone).catch(() => {});
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
   const [products, setProducts] = useState([]);
-  const [settings, setSettings] = useState(null);
-  const [signal, setSignal] = useState(null);
+  const [listings, setListings] = useState([]);
+  const [analytics, setAnalytics] = useState({});
+  const [posts, setPosts] = useState([]);
+  const [copied, setCopied] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [productRes, listingRes] = await Promise.all([
+        api.get("/products"),
+        api.get("/listings"),
+      ]);
+      const productRows = productRes.data || [];
+      const listingRows = listingRes.data.listings || [];
+      setProducts(productRows);
+      setListings(listingRows);
+
+      const best = productRows.find((p) => p.id === INCOME_STRATEGY.productId) || productRows[0];
+      if (best) {
+        const [analyticsRes, postRes] = await Promise.allSettled([
+          api.get(`/analytics/${best.id}`),
+          api.get(`/tiktok/export/${best.id}`),
+        ]);
+        setAnalytics(analyticsRes.status === "fulfilled" ? analyticsRes.value.data.totals || {} : {});
+        setPosts(postRes.status === "fulfilled" ? postRes.value.data.posts || [] : []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    return startStepTimer("dashboard_next_action");
+    load();
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      const p = await api.get("/products");
-      setProducts(p.data);
-      api.get("/settings").then((r) => setSettings(r.data)).catch(() => setSettings(null));
-    })();
-  }, []);
-
-  const activeProduct = useMemo(() => {
-    if (products.length === 0) return null;
-    return products.find((p) => p.launched_stores?.length && !p.sales_count) || products[0];
+  const bestProduct = useMemo(() => {
+    return products.find((p) => p.id === INCOME_STRATEGY.productId) || products[0] || null;
   }, [products]);
 
-  useEffect(() => {
-    if (!activeProduct?.id || !activeProduct.launched_stores?.length) {
-      setSignal(null);
-      return;
-    }
-    let alive = true;
-    const load = async () => {
-      try {
-        const r = await api.get(`/first-result/${activeProduct.id}`);
-        if (alive) setSignal(r.data);
-      } catch {
-        if (alive) setSignal(null);
-      }
-    };
-    load();
-    const t = setInterval(load, 10000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, [activeProduct?.id, activeProduct?.launched_stores?.length]);
+  const liveListing = useMemo(() => {
+    if (!bestProduct) return null;
+    return listings.find((l) => l.product_id === bestProduct.id && l.status === "LIVE" && l.real);
+  }, [bestProduct, listings]);
 
-  const storeProviders = ["gumroad", "stan_store", "whop", "payhip"];
-  const hasStoreConnected = storeProviders.some((id) => settings?.providers?.[id]?.configured);
-  const next = nextAction(activeProduct, signal, hasStoreConnected);
-  const showStarterOffer = (user?.plan || "free") === "free" && products.length > 0;
+  const moneyUrl = liveListing?.listing_url || (bestProduct && LIVE_PRODUCT_LINKS[bestProduct.id]) || INCOME_STRATEGY.url;
+  const firstPost = posts[0];
+  const dm = `Hey, quick one. I made a simple follow-up script kit for local service businesses that lose leads after missed calls or slow quote follow-up.\n\nIt is $${INCOME_STRATEGY.price} and built to copy/paste into SMS, email, and review requests.\n\nWant the link?`;
+  const postText = firstPost
+    ? [firstPost.hook, "", firstPost.script, "", firstPost.caption, "", moneyUrl, "", (firstPost.hashtags || []).map((h) => `#${h}`).join(" ")].join("\n")
+    : `Most local service businesses do not need more leads first. They need faster follow-up.\n\nUse this $${INCOME_STRATEGY.price} script kit to respond to missed calls, follow up on quotes, and ask for reviews.\n\n${moneyUrl}`;
 
   return (
     <div className="p-6 lg:p-10" data-testid="dashboard-page">
-      <div className="mb-8">
-        <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#FFD600]">Quality first</div>
-        <h1 className="font-heading text-5xl uppercase lg:text-6xl">Make the product worth selling</h1>
-        <p className="mt-2 max-w-2xl text-zinc-400">One complete product, one clear buyer, one next action. Automation comes after the offer is real.</p>
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#FFD600]">
+            Income command center
+          </div>
+          <h1 className="font-heading text-5xl uppercase leading-none lg:text-6xl">Sell one clear offer first</h1>
+          <p className="mt-3 max-w-3xl text-zinc-400">
+            The app now points at the fastest path: one understandable product, one live link, one daily promotion loop.
+          </p>
+        </div>
+        <button onClick={load} className="inline-flex items-center gap-2 border border-zinc-700 px-4 py-3 font-mono text-xs uppercase tracking-widest text-white hover:bg-white hover:text-black">
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> Refresh
+        </button>
       </div>
 
-      {!activeProduct ? (
-        <section className="border border-[#FFD600] bg-[#FFD600]/10 p-6">
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">Step 1</div>
-          <div className="font-heading text-4xl uppercase">Choose a buyer</div>
-          <p className="mt-2 max-w-xl text-zinc-300">Create the first complete product before looking at automation.</p>
-          <Link
-            to="/app/products"
-            onClick={() => trackOnboarding("primary_cta_clicked", { cta: "dashboard_start_here" })}
-            className="btn-hard mt-5 inline-flex items-center gap-2 bg-[#FFD600] px-5 py-3 font-mono text-xs uppercase tracking-widest text-black"
-            data-testid="dashboard-start-here"
-          >
-            Build product
-          </Link>
-        </section>
-      ) : (
-        <div className="grid grid-cols-1 gap-px border border-zinc-800 bg-zinc-800 xl:grid-cols-[1fr_360px]">
-          <section className="bg-zinc-950 p-6">
-            <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-zinc-500">Active product</div>
-            <h2 className="font-heading text-4xl uppercase">{activeProduct.title}</h2>
-            <p className="mt-2 max-w-2xl text-zinc-400">{activeProduct.tagline}</p>
-
-            <div className="mt-6 border border-[#FFD600] bg-[#FFD600]/10 p-5">
-              <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">Next recommended action</div>
-              <div className="font-heading text-3xl uppercase">{next.title}</div>
-              <p className="mt-1 text-sm text-zinc-300">{next.body}</p>
-              <Link
-                to={next.href}
-                onClick={() => trackOnboarding("primary_cta_clicked", { cta: next.id, product_id: activeProduct.id })}
-                className={`btn-hard mt-4 inline-flex items-center gap-2 px-5 py-3 font-mono text-xs uppercase tracking-widest ${next.red ? "bg-[#FF3333] text-white btn-hard-red" : "bg-[#FFD600] text-black"}`}
-                data-testid="dashboard-next-action"
-              >
-                {next.cta}
+      <section className="mb-8 border border-[#FFD600] bg-[#FFD600]/10 p-6 lg:p-8">
+        <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+          <div>
+            <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#FFD600]">
+              <Target className="h-4 w-4" /> Best income possibility
+            </div>
+            <h2 className="font-heading text-4xl uppercase lg:text-5xl">{INCOME_STRATEGY.headline}</h2>
+            <p className="mt-3 max-w-3xl text-zinc-300">{INCOME_STRATEGY.reason}</p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <a href={moneyUrl} target="_blank" rel="noreferrer" className="btn-hard inline-flex items-center gap-2 bg-[#FFD600] px-5 py-3 font-mono text-xs uppercase tracking-widest text-black">
+                Open live offer <ExternalLink className="h-4 w-4" />
+              </a>
+              {bestProduct && (
+                <Link to={`/app/products/${bestProduct.id}`} className="inline-flex items-center gap-2 border border-zinc-700 px-5 py-3 font-mono text-xs uppercase tracking-widest text-white hover:bg-white hover:text-black">
+                  Edit product <ArrowRight className="h-4 w-4" />
+                </Link>
+              )}
+              <Link to="/app/acquire" className="inline-flex items-center gap-2 border border-zinc-700 px-5 py-3 font-mono text-xs uppercase tracking-widest text-white hover:bg-white hover:text-black">
+                Generate client scripts <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
-          </section>
-
-          <aside className="bg-zinc-950 p-6">
-            <div className="mb-4 font-mono text-[10px] uppercase tracking-widest text-zinc-500">First result progress</div>
-            <div className="space-y-3">
-              <ProgressRow done label="Product created" />
-              <ProgressRow done={hasStoreConnected} label="Store connected" />
-              <ProgressRow done={activeProduct.launched_stores?.length > 0} label="Real listing live" />
-              <ProgressRow done={signal?.milestones?.first_post || signal?.milestones?.first_engagement} label="First TikTok copied" />
-              <ProgressRow done={signal?.milestones?.first_click} label="First click" />
-              <ProgressRow done={signal?.milestones?.first_sale} label="First sale" />
-            </div>
-
-            <div className="mt-6 grid grid-cols-3 gap-px bg-zinc-800">
-              <MiniStat icon={<MousePointerClick />} label="Clicks" value={signal?.totals?.clicks || 0} />
-              <MiniStat icon={<ShoppingCart />} label="Sales" value={signal?.totals?.sales || 0} />
-              <MiniStat icon={<Rocket />} label="Live" value={activeProduct.launched_stores?.length || 0} />
-            </div>
-
-            {showStarterOffer && (
-              <div className="mt-6 border border-[#FFD600] bg-[#FFD600]/10 p-4" data-testid="dashboard-starter-offer">
-                <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">
-                  <Zap className="h-3 w-3" /> Founder offer
-                </div>
-                <div className="font-heading text-2xl uppercase">Full packages for $14.50</div>
-                <p className="mt-2 text-sm text-zinc-300">
-                  Free previews show the idea. Starter unlocks full products, store bundles, covers, videos, campaigns, and launch tools.
-                </p>
-                <Link
-                  to="/pricing?checkout=starter"
-                  className="btn-hard mt-4 inline-flex items-center gap-2 bg-[#FFD600] px-4 py-2 font-mono text-xs uppercase tracking-widest text-black"
-                  data-testid="dashboard-starter-checkout"
-                >
-                  Unlock all <ArrowUpRight className="h-3 w-3" />
-                </Link>
-              </div>
-            )}
-          </aside>
+          </div>
+          <div className="grid grid-cols-3 gap-px bg-zinc-800">
+            <Metric icon={<ShoppingCart />} label="Price" value={`$${INCOME_STRATEGY.price}`} />
+            <Metric icon={<MousePointerClick />} label="Clicks" value={analytics.clicks || 0} />
+            <Metric icon={<TrendingUp />} label="Sales" value={analytics.sales || 0} />
+          </div>
         </div>
-      )}
+      </section>
+
+      <div className="grid gap-px border border-zinc-800 bg-zinc-800 xl:grid-cols-[1fr_0.9fr]">
+        <section className="bg-zinc-950 p-6">
+          <div className="mb-5 font-mono text-xs uppercase tracking-widest text-zinc-500">Today&apos;s revenue loop</div>
+          <div className="grid gap-3 md:grid-cols-3">
+            {INCOME_STRATEGY.dailyPlan.map((step, index) => (
+              <div key={step} className="border border-zinc-800 bg-black p-4">
+                <div className="mb-3 inline-flex h-7 w-7 items-center justify-center bg-[#FFD600] font-mono text-xs text-black">
+                  {index + 1}
+                </div>
+                <div className="text-sm text-zinc-200">{step}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 border border-zinc-800 bg-black p-5">
+            <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">Copy this post</div>
+            <pre className="mb-4 whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">{postText}</pre>
+            <button onClick={() => copyText(postText, () => setCopied("post"))} className="btn-hard inline-flex items-center gap-2 bg-[#FFD600] px-4 py-3 font-mono text-xs uppercase tracking-widest text-black">
+              <Copy className="h-3 w-3" /> {copied === "post" ? "Copied" : "Copy post"}
+            </button>
+          </div>
+        </section>
+
+        <aside className="bg-zinc-950 p-6">
+          <div className="mb-5 font-mono text-xs uppercase tracking-widest text-zinc-500">Direct outreach</div>
+          <div className="border border-zinc-800 bg-black p-5">
+            <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">
+              <Send className="h-3 w-3" /> DM script
+            </div>
+            <pre className="mb-4 whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">{dm}</pre>
+            <button onClick={() => copyText(dm, () => setCopied("dm"))} className="inline-flex items-center gap-2 border border-zinc-700 px-4 py-3 font-mono text-xs uppercase tracking-widest text-white hover:bg-white hover:text-black">
+              <Copy className="h-3 w-3" /> {copied === "dm" ? "Copied" : "Copy DM"}
+            </button>
+          </div>
+
+          <div className="mt-5 border border-zinc-800 bg-black p-5">
+            <div className="mb-3 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-[#FFD600]">
+              <CheckCircle2 className="h-3 w-3" /> What this app is for now
+            </div>
+            <ul className="space-y-3 text-sm text-zinc-300">
+              <li>Find a simple product a buyer already understands.</li>
+              <li>Publish it to a real checkout page.</li>
+              <li>Post and DM until clicks or sales show signal.</li>
+              <li>Improve the product from real buyer objections.</li>
+            </ul>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
 
-function nextAction(product, signal, hasStoreConnected) {
-  if (!product) {
-    return { id: "start", title: "Choose a buyer", body: "Start with one clear buyer and one useful product.", cta: "Build product", href: "/app/products" };
-  }
-  if (!hasStoreConnected) {
-    return { id: "connect_store", title: "Connect a real store", body: "Publishing only works when Gumroad, Stan Store, Whop, or Payhip is connected.", cta: "Connect store", href: "/app/settings", red: true };
-  }
-  if (!product.launched_stores?.length) {
-    return { id: "launch_now", title: "Review then publish", body: "Check the product assets and store copy, then publish it to a real store.", cta: "Review product", href: `/app/products/${product.id}`, red: true };
-  }
-  if (!signal?.milestones?.first_post && !signal?.milestones?.first_engagement) {
-    return { id: "copy_tiktok", title: "Copy your first TikTok", body: "Promotion creates traffic. Copy one post and publish it.", cta: "Get your first result", href: `/app/products/${product.id}#traffic-engine` };
-  }
-  if (!signal?.milestones?.first_click) {
-    return { id: "check_momentum", title: "Check for activity", body: "You took action. Watch for the first click.", cta: "Check progress", href: `/app/products/${product.id}` };
-  }
-  return { id: "keep_going", title: "Momentum started", body: "You have a signal. Keep pushing this product.", cta: "Open product", href: `/app/products/${product.id}` };
-}
-
-function ProgressRow({ done, label }) {
+function Metric({ icon, label, value }) {
   return (
-    <div className="flex items-center gap-3 border border-zinc-800 bg-black p-3">
-      <span className={`flex h-6 w-6 items-center justify-center border ${done ? "border-[#FFD600] bg-[#FFD600] text-black" : "border-zinc-700 text-zinc-600"}`}>
-        {done ? <CheckCircle2 className="h-4 w-4" /> : null}
-      </span>
-      <span className={`font-mono text-xs uppercase tracking-widest ${done ? "text-zinc-100" : "text-zinc-500"}`}>{label}</span>
-    </div>
-  );
-}
-
-function MiniStat({ icon, label, value }) {
-  return (
-    <div className="bg-black p-3">
-      <div className="mb-1 text-[#FFD600]">{icon}</div>
-      <div className="font-mono text-[9px] uppercase tracking-widest text-zinc-500">{label}</div>
-      <div className="font-heading text-2xl uppercase">{value}</div>
+    <div className="bg-black p-4">
+      <div className="mb-2 text-[#FFD600]">{icon}</div>
+      <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">{label}</div>
+      <div className="font-heading text-3xl uppercase">{value}</div>
     </div>
   );
 }
